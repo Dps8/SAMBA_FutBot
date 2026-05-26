@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import inspect
+import time
+import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -72,68 +74,90 @@ def _run_official_sam3(
     threshold: float,
 ) -> list[Detection]:
     try:
-        from sam3.model_builder import build_sam3_predictor
+        from sam3.model_builder import (
+            build_sam3_multiplex_video_predictor,
+            build_sam3_video_predictor,
+        )
     except ImportError as exc:
-        try:
-            from sam3.model_builder import build_sam3_video_predictor
-        except ImportError:
-            raise RuntimeError(
-                "Official SAM 3 backend is not installed. Run `pip install -r requirements-sam3.txt`."
-            ) from exc
+        raise RuntimeError(
+            "Official SAM 3 backend is not installed. Run `pip install -r requirements-sam3.txt`."
+        ) from exc
 
-        predictor = build_sam3_video_predictor()
+    if "3.1" in model_id:
+        predictor = build_sam3_multiplex_video_predictor()
     else:
-        version = "sam3.1" if "3.1" in model_id else "sam3"
-        signature = inspect.signature(build_sam3_predictor)
-        kwargs = {"version": version}
-        if "checkpoint_path" in signature.parameters and Path(model_id).exists():
-            kwargs["checkpoint_path"] = model_id
-        predictor = build_sam3_predictor(**kwargs)
+        predictor = build_sam3_video_predictor()
+    _patch_start_session_for_init_signature(predictor)
 
     detections: list[Detection] = []
 
     for class_name, prompt in prompt_pairs:
-        start = predictor.handle_request(
-            request={"type": "start_session", "resource_path": str(video_path)}
-        )
-        session_id = start["session_id"]
-        response = predictor.handle_request(
-            request={
-                "type": "add_prompt",
-                "session_id": session_id,
-                "frame_index": 0,
-                "text": prompt,
-            }
-        )
-        stream_request = {"type": "propagate_in_video", "session_id": session_id}
-        if hasattr(predictor, "handle_stream_request"):
-            for processed in predictor.handle_stream_request(stream_request):
-                frame_index = _frame_index_from_output(processed)
-                if max_frames is not None and frame_index >= max_frames:
-                    break
-                detections.extend(
-                    _detections_from_processed(
-                        processed=processed,
-                        frame_index=frame_index,
-                        class_name=class_name,
-                        prompt=prompt,
-                        out_dir=out_dir,
-                        threshold=threshold,
-                    )
+        session_id = None
+        try:
+            start = predictor.handle_request(
+                request={"type": "start_session", "resource_path": str(video_path)}
+            )
+            session_id = start["session_id"]
+            response = predictor.handle_request(
+                request={
+                    "type": "add_prompt",
+                    "session_id": session_id,
+                    "frame_index": 0,
+                    "text": prompt,
+                }
+            )
+            detections.extend(
+                _detections_from_processed(
+                    processed=response.get("outputs", {}),
+                    frame_index=0,
+                    class_name=class_name,
+                    prompt=prompt,
+                    out_dir=out_dir,
+                    threshold=threshold,
                 )
-        else:
-            for frame_index, processed in _iter_frame_outputs(response.get("outputs", {})):
-                if max_frames is not None and frame_index >= max_frames:
-                    continue
-                detections.extend(
-                    _detections_from_processed(
-                        processed=processed,
-                        frame_index=frame_index,
-                        class_name=class_name,
-                        prompt=prompt,
-                        out_dir=out_dir,
-                        threshold=threshold,
+            )
+            stream_request = {
+                "type": "propagate_in_video",
+                "session_id": session_id,
+                "max_frame_num_to_track": max_frames,
+            }
+            if hasattr(predictor, "handle_stream_request"):
+                for processed in predictor.handle_stream_request(stream_request):
+                    frame_index = _frame_index_from_output(processed)
+                    if max_frames is not None and frame_index >= max_frames:
+                        break
+                    detections.extend(
+                        _detections_from_processed(
+                            processed=processed.get("outputs", processed),
+                            frame_index=frame_index,
+                            class_name=class_name,
+                            prompt=prompt,
+                            out_dir=out_dir,
+                            threshold=threshold,
+                        )
                     )
+            else:
+                for frame_index, processed in _iter_frame_outputs(response.get("outputs", {})):
+                    if max_frames is not None and frame_index >= max_frames:
+                        continue
+                    detections.extend(
+                        _detections_from_processed(
+                            processed=processed,
+                            frame_index=frame_index,
+                            class_name=class_name,
+                            prompt=prompt,
+                            out_dir=out_dir,
+                            threshold=threshold,
+                        )
+                    )
+        finally:
+            if session_id is not None:
+                predictor.handle_request(
+                    request={
+                        "type": "close_session",
+                        "session_id": session_id,
+                        "run_gc_collect": False,
+                    }
                 )
     return detections
 
@@ -315,6 +339,45 @@ def _mask_to_box(mask: np.ndarray) -> tuple[float, float, float, float]:
 
 def _safe_name(text: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in text.lower()).strip("_")[:48]
+
+
+def _patch_start_session_for_init_signature(predictor: Any) -> None:
+    """Adapt SAM 3.1 builds whose init_state does not accept all base kwargs."""
+
+    init_state = getattr(getattr(predictor, "model", None), "init_state", None)
+    if init_state is None:
+        return
+    parameters = inspect.signature(init_state).parameters
+    if "offload_state_to_cpu" in parameters:
+        return
+
+    def start_session(
+        resource_path,
+        session_id=None,
+        offload_video_to_cpu=False,
+        offload_state_to_cpu=False,
+    ):
+        init_kwargs = {"resource_path": resource_path}
+        if "offload_video_to_cpu" in parameters:
+            init_kwargs["offload_video_to_cpu"] = offload_video_to_cpu
+        if "offload_state_to_cpu" in parameters:
+            init_kwargs["offload_state_to_cpu"] = offload_state_to_cpu
+        if hasattr(predictor, "async_loading_frames") and "async_loading_frames" in parameters:
+            init_kwargs["async_loading_frames"] = predictor.async_loading_frames
+        if hasattr(predictor, "video_loader_type") and "video_loader_type" in parameters:
+            init_kwargs["video_loader_type"] = predictor.video_loader_type
+        inference_state = predictor.model.init_state(**init_kwargs)
+
+        resolved_session_id = session_id or str(uuid.uuid4())
+        predictor._all_inference_states[resolved_session_id] = {
+            "state": inference_state,
+            "session_id": resolved_session_id,
+            "start_time": time.time(),
+            "last_use_time": time.time(),
+        }
+        return {"session_id": resolved_session_id}
+
+    predictor.start_session = start_session
 
 
 def _frame_index_from_output(output: dict[str, Any]) -> int:
