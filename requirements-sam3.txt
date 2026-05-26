@@ -1,0 +1,8 @@
+# Base project first:
+-e .[sam3,viz]
+
+# Official SAM 3 repository. Install after PyTorch.
+git+https://github.com/facebookresearch/sam3.git
+
+# Install the CUDA build recommended by Meta separately, for example:
+# pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128

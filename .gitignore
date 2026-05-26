@@ -1,0 +1,30 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Challenge data and generated artifacts
+data/raw/*
+data/frames/*
+outputs/*
+!data/raw/.gitkeep
+!data/frames/.gitkeep
+!outputs/detections/.gitkeep
+!outputs/videos/.gitkeep
+!outputs/reports/.gitkeep
+
+# Large media and model files
+*.mov
+*.mp4
+*.avi
+*.mkv
+*.pth
+*.pt
+*.safetensors
+*.onnx
+
+# Local credentials
+.env
+hf_token.txt

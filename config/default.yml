@@ -1,0 +1,47 @@
+project:
+  name: SAMBA FutBot
+  category: Profesional
+  drive_root_id: 1TF7-P4rAwPmHFw_TjmNfFU3ORxqnp8CD
+
+data:
+  manifest: data/manifests/drive_index.json
+  raw_dir: data/raw
+  frame_dir: data/frames
+
+sam3:
+  # Use facebook/sam3 if the committee requests the base checkpoint exactly.
+  model_id: facebook/sam3.1
+  backend: official
+  max_frames: 450
+  stride: 2
+  threshold: 0.45
+  mask_threshold: 0.5
+  prompts:
+    field:
+      - soccer field
+      - green playing field
+    robots:
+      - small wheeled soccer robot
+      - robot soccer player
+    ball:
+      - orange soccer ball
+      - small ball
+
+tracking:
+  iou_threshold: 0.25
+  max_age: 12
+  min_area:
+    ball: 10
+    robots: 40
+    field: 1000
+
+analysis:
+  fps: 30
+  possession_radius_px: 90
+  collision_radius_px: 55
+  goal_x_margin_ratio: 0.08
+
+visualization:
+  overlay_alpha: 0.45
+  trail_length: 45
+  output_fps: 30

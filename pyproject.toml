@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "samba-futbot"
+version = "0.1.0"
+description = "Pipeline reproducible para el reto Copa FutBotMX Vision por Computadora."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Equipo SAMBA FutBot" }]
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.2",
+  "pillow>=10",
+  "opencv-python-headless>=4.10",
+  "pyyaml>=6.0",
+  "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+viz = [
+  "matplotlib>=3.9",
+  "scikit-learn>=1.5",
+]
+sam3 = [
+  "accelerate>=1.0",
+  "huggingface_hub>=0.28",
+  "transformers>=4.58",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.8",
+]
+
+[project.scripts]
+samba-futbot = "samba_futbot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
