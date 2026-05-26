@@ -20,6 +20,7 @@ from .sam3_adapter import run_sam3_video
 from .tracking import track_detections
 from .video import sample_frames, video_info
 from .visualize import render_demo_video
+from .windowing import merge_detection_files, parse_int_list, write_window_manifest
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,6 +73,29 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--offload-video-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     run.add_argument("--offload-state-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     run.set_defaults(func=cmd_run_sam3)
+
+    sweep = sub.add_parser("run-sam3-sweep", help="Ejecutar SAM 3 por ventanas.")
+    sweep.add_argument("--config", default="config/default.yml")
+    sweep.add_argument("--video", required=True)
+    sweep.add_argument("--out", required=True)
+    sweep.add_argument("--prompt-frames", required=True, help="Lista CSV de frames ancla.")
+    sweep.add_argument("--window-size", type=int, default=None)
+    sweep.add_argument("--end-frame", type=int, default=None)
+    sweep.add_argument("--classes", default=None, help="Clases CSV a conservar del config.")
+    sweep.add_argument("--threshold", type=float, default=None)
+    sweep.add_argument("--dedupe-iou", type=float, default=0.9)
+    sweep.add_argument("--backend", choices=["official", "transformers"], default=None)
+    sweep.add_argument("--model-id", default=None)
+    sweep.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=None)
+    sweep.add_argument("--offload-video-to-cpu", action=argparse.BooleanOptionalAction, default=None)
+    sweep.add_argument("--offload-state-to-cpu", action=argparse.BooleanOptionalAction, default=None)
+    sweep.set_defaults(func=cmd_run_sam3_sweep)
+
+    merge = sub.add_parser("merge-detections", help="Fusionar JSONL de detecciones.")
+    merge.add_argument("--inputs", required=True, help="Archivos JSONL separados por coma.")
+    merge.add_argument("--out", required=True)
+    merge.add_argument("--dedupe-iou", type=float, default=0.9)
+    merge.set_defaults(func=cmd_merge_detections)
 
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
@@ -213,6 +237,99 @@ def cmd_run_sam3(args: argparse.Namespace) -> None:
         ),
     )
     print(json.dumps({"detections": len(detections), "out": str(Path(args.out) / "detections.jsonl")}, indent=2))
+
+
+def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    sam_config = config.get("sam3", {})
+    output_dir = Path(args.out)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    prompt_frames = parse_int_list(args.prompt_frames)
+    end_frame = args.end_frame or int(video_info(args.video)["frames"])
+    window_size = int(args.window_size or sam_config.get("max_frames", 300))
+    prompts = _filtered_prompts(sam_config.get("prompts", {}), args.classes)
+    threshold = args.threshold if args.threshold is not None else float(sam_config.get("threshold", 0.45))
+
+    detection_files: list[Path] = []
+    windows: list[dict] = []
+    for prompt_frame in prompt_frames:
+        if prompt_frame >= end_frame:
+            continue
+        window_end = min(prompt_frame + window_size, end_frame)
+        window_dir = output_dir / f"window_{prompt_frame:06d}_{window_end:06d}"
+        detections = run_sam3_video(
+            args.video,
+            window_dir,
+            prompts=prompts,
+            backend=args.backend or sam_config.get("backend", "official"),
+            model_id=args.model_id or sam_config.get("model_id", "facebook/sam3"),
+            max_frames=window_end,
+            stride=sam_config.get("stride", 1),
+            threshold=threshold,
+            mask_threshold=float(sam_config.get("mask_threshold", 0.5)),
+            prompt_frame_index=prompt_frame,
+            use_fa3=(
+                args.use_fa3
+                if args.use_fa3 is not None
+                else bool(sam_config.get("use_fa3", False))
+            ),
+            offload_video_to_cpu=(
+                args.offload_video_to_cpu
+                if args.offload_video_to_cpu is not None
+                else bool(sam_config.get("offload_video_to_cpu", True))
+            ),
+            offload_state_to_cpu=(
+                args.offload_state_to_cpu
+                if args.offload_state_to_cpu is not None
+                else bool(sam_config.get("offload_state_to_cpu", True))
+            ),
+        )
+        detections_path = window_dir / "detections.jsonl"
+        detection_files.append(detections_path)
+        windows.append(
+            {
+                "prompt_frame": prompt_frame,
+                "end_frame": window_end,
+                "detections": len(detections),
+                "detections_path": str(detections_path),
+            }
+        )
+
+    merged = merge_detection_files(
+        detection_files,
+        output_dir / "detections.jsonl",
+        iou_threshold=args.dedupe_iou,
+    )
+    write_window_manifest(
+        output_dir / "manifest.json",
+        video=args.video,
+        windows=windows,
+        detections=len(merged),
+    )
+    print(
+        json.dumps(
+            {
+                "out": str(output_dir / "detections.jsonl"),
+                "detections": len(merged),
+                "windows": len(windows),
+            },
+            indent=2,
+        )
+    )
+
+
+def cmd_merge_detections(args: argparse.Namespace) -> None:
+    inputs = [Path(part.strip()) for part in args.inputs.split(",") if part.strip()]
+    merged = merge_detection_files(inputs, args.out, iou_threshold=args.dedupe_iou)
+    print(json.dumps({"out": args.out, "inputs": len(inputs), "detections": len(merged)}, indent=2))
+
+
+def _filtered_prompts(prompts: dict, classes_csv: str | None) -> dict:
+    if not classes_csv:
+        return prompts
+    classes = {part.strip() for part in classes_csv.split(",") if part.strip()}
+    return {class_name: value for class_name, value in prompts.items() if class_name in classes}
 
 
 def cmd_track(args: argparse.Namespace) -> None:

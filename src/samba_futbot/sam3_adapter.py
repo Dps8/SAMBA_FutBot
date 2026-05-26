@@ -138,7 +138,7 @@ def _run_official_sam3(
                 "session_id": session_id,
                 "propagation_direction": "forward",
                 "start_frame_index": prompt_frame_index,
-                "max_frame_num_to_track": max_frames,
+                "max_frame_num_to_track": _track_count(prompt_frame_index, max_frames),
             }
             if hasattr(predictor, "handle_stream_request"):
                 for processed in predictor.handle_stream_request(stream_request):
@@ -182,6 +182,12 @@ def _run_official_sam3(
                     }
                 )
     return detections
+
+
+def _track_count(prompt_frame_index: int, max_frames: int | None) -> int | None:
+    if max_frames is None:
+        return None
+    return max(0, max_frames - prompt_frame_index)
 
 
 def _run_transformers_sam3(
