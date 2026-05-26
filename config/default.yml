@@ -26,10 +26,9 @@ sam3:
     robots:
       - robot
     ball:
+      - small orange ball
       - orange ball
       - pelota naranja
-      - small orange ball
-      - orange soccer ball
 
 tracking:
   iou_threshold: 0.25
