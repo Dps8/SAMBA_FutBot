@@ -21,14 +21,11 @@ sam3:
   offload_state_to_cpu: true
   prompts:
     field:
-      - soccer field
-      - green playing field
+      - green soccer field
     robots:
-      - small wheeled soccer robot
-      - robot soccer player
+      - robot
     ball:
-      - orange soccer ball
-      - small ball
+      - soccer ball
 
 tracking:
   iou_threshold: 0.25
