@@ -18,9 +18,9 @@ from .io_utils import read_detections, write_detections, write_events, write_jso
 from .metrics import summarize_tracks
 from .sam3_adapter import run_sam3_video
 from .tracking import track_detections
-from .video import sample_frames, video_info
+from .video import extract_video_clip, sample_frames, video_info
 from .visualize import render_demo_video
-from .windowing import merge_detection_files, parse_int_list, write_window_manifest
+from .windowing import merge_detection_files, offset_detections, parse_int_list, write_window_manifest
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=None)
     sweep.add_argument("--offload-video-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     sweep.add_argument("--offload-state-to-cpu", action=argparse.BooleanOptionalAction, default=None)
+    sweep.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
     sweep.set_defaults(func=cmd_run_sam3_sweep)
 
     merge = sub.add_parser("merge-detections", help="Fusionar JSONL de detecciones.")
@@ -258,17 +259,34 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
             continue
         window_end = min(prompt_frame + window_size, end_frame)
         window_dir = output_dir / f"window_{prompt_frame:06d}_{window_end:06d}"
+        source_video: str | Path = args.video
+        source_max_frames = window_end
+        source_prompt_frame = prompt_frame
+        frame_offset = 0
+        clip_path: Path | None = None
+        if args.clip_windows:
+            clip_path = output_dir / "clips" / f"window_{prompt_frame:06d}_{window_end:06d}.mp4"
+            extract_video_clip(
+                args.video,
+                clip_path,
+                start_frame=prompt_frame,
+                end_frame=window_end,
+            )
+            source_video = clip_path
+            source_max_frames = window_end - prompt_frame
+            source_prompt_frame = 0
+            frame_offset = prompt_frame
         detections = run_sam3_video(
-            args.video,
+            source_video,
             window_dir,
             prompts=prompts,
             backend=args.backend or sam_config.get("backend", "official"),
             model_id=args.model_id or sam_config.get("model_id", "facebook/sam3"),
-            max_frames=window_end,
+            max_frames=source_max_frames,
             stride=sam_config.get("stride", 1),
             threshold=threshold,
             mask_threshold=float(sam_config.get("mask_threshold", 0.5)),
-            prompt_frame_index=prompt_frame,
+            prompt_frame_index=source_prompt_frame,
             use_fa3=(
                 args.use_fa3
                 if args.use_fa3 is not None
@@ -286,11 +304,14 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
             ),
         )
         detections_path = window_dir / "detections.jsonl"
+        detections = offset_detections(detections, frame_offset)
+        write_detections(detections_path, detections)
         detection_files.append(detections_path)
         windows.append(
             {
                 "prompt_frame": prompt_frame,
                 "end_frame": window_end,
+                "clip_path": str(clip_path) if clip_path else None,
                 "detections": len(detections),
                 "detections_path": str(detections_path),
             }

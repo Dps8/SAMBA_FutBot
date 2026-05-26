@@ -4,7 +4,12 @@ from pathlib import Path
 
 from samba_futbot.io_utils import write_detections
 from samba_futbot.types import Detection
-from samba_futbot.windowing import deduplicate_detections, merge_detection_files, parse_int_list
+from samba_futbot.windowing import (
+    deduplicate_detections,
+    merge_detection_files,
+    offset_detections,
+    parse_int_list,
+)
 
 
 class WindowingTest(unittest.TestCase):
@@ -35,6 +40,15 @@ class WindowingTest(unittest.TestCase):
 
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0].score, 0.9)
+
+    def test_offset_detections_preserves_clip_frame(self):
+        detections = [Detection(3, "ball", 0.8, (1, 2, 3, 4), extra={"source": "clip"})]
+
+        shifted = offset_detections(detections, 150)
+
+        self.assertEqual(shifted[0].frame_index, 153)
+        self.assertEqual(shifted[0].extra["clip_frame_index"], 3)
+        self.assertEqual(shifted[0].extra["source"], "clip")
 
 
 if __name__ == "__main__":

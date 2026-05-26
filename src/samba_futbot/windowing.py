@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
@@ -45,6 +46,17 @@ def merge_detection_files(
     merged = deduplicate_detections(detections, iou_threshold=iou_threshold)
     write_detections(out_path, merged)
     return merged
+
+
+def offset_detections(detections: list[Detection], frame_offset: int) -> list[Detection]:
+    if frame_offset == 0:
+        return detections
+    shifted: list[Detection] = []
+    for det in detections:
+        extra = dict(det.extra)
+        extra.setdefault("clip_frame_index", det.frame_index)
+        shifted.append(replace(det, frame_index=det.frame_index + frame_offset, extra=extra))
+    return shifted
 
 
 def write_window_manifest(
