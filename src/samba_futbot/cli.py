@@ -98,6 +98,30 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--dedupe-iou", type=float, default=0.9)
     merge.set_defaults(func=cmd_merge_detections)
 
+    process = sub.add_parser("process-video", help="Pipeline completo: SAM3, merge, tracking, metricas y demo.")
+    process.add_argument("--config", default="config/default.yml")
+    process.add_argument("--video", required=True)
+    process.add_argument("--results-dir", default="outputs")
+    process.add_argument("--suffix", default="full-windowed-orange-v2-clipped")
+    process.add_argument("--field-window-size", type=int, default=300)
+    process.add_argument("--ball-window-size", type=int, default=220)
+    process.add_argument("--field-step", type=int, default=300)
+    process.add_argument("--ball-step", type=int, default=150)
+    process.add_argument("--field-start", type=int, default=0)
+    process.add_argument("--ball-start", type=int, default=150)
+    process.add_argument("--field-threshold", type=float, default=0.45)
+    process.add_argument("--ball-threshold", type=float, default=0.05)
+    process.add_argument("--field-dedupe-iou", type=float, default=0.90)
+    process.add_argument("--ball-dedupe-iou", type=float, default=0.70)
+    process.add_argument("--merge-dedupe-iou", type=float, default=0.85)
+    process.add_argument("--track-iou-threshold", type=float, default=0.05)
+    process.add_argument("--track-max-age", type=int, default=20)
+    process.add_argument("--trail-length", type=int, default=45)
+    process.add_argument("--max-seconds", type=float, default=None)
+    process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
+    process.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
+    process.set_defaults(func=cmd_process_video)
+
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
     track.add_argument("--out", required=True)
@@ -344,6 +368,145 @@ def cmd_merge_detections(args: argparse.Namespace) -> None:
     inputs = [Path(part.strip()) for part in args.inputs.split(",") if part.strip()]
     merged = merge_detection_files(inputs, args.out, iou_threshold=args.dedupe_iou)
     print(json.dumps({"out": args.out, "inputs": len(inputs), "detections": len(merged)}, indent=2))
+
+
+def cmd_process_video(args: argparse.Namespace) -> None:
+    info = video_info(args.video)
+    end_frame = int(info["frames"])
+    duration_seconds = info.get("duration_seconds")
+    stem = Path(args.video).stem
+    results_dir = Path(args.results_dir)
+
+    field_prompt_frames = _frame_anchors(
+        end_frame,
+        start=args.field_start,
+        step=args.field_step,
+    )
+    ball_prompt_frames = _frame_anchors(
+        end_frame,
+        start=args.ball_start,
+        step=args.ball_step,
+    )
+
+    field_out = results_dir / "detections" / f"{stem}-field-robots-sweep-clipped"
+    ball_out = results_dir / "detections" / f"{stem}-ball-sweep-orange-v2-clipped"
+    merged_out = results_dir / "detections" / f"{stem}-{args.suffix}" / "detections.jsonl"
+    tracks_out = results_dir / "tracks" / f"{stem}-{args.suffix}-tracks.jsonl"
+    metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
+    video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
+
+    _run_sweep_for_process(
+        args,
+        classes="field,robots",
+        prompt_frames=field_prompt_frames,
+        window_size=args.field_window_size,
+        end_frame=end_frame,
+        out=field_out,
+        threshold=args.field_threshold,
+        dedupe_iou=args.field_dedupe_iou,
+    )
+    _run_sweep_for_process(
+        args,
+        classes="ball",
+        prompt_frames=ball_prompt_frames,
+        window_size=args.ball_window_size,
+        end_frame=end_frame,
+        out=ball_out,
+        threshold=args.ball_threshold,
+        dedupe_iou=args.ball_dedupe_iou,
+    )
+
+    merged = merge_detection_files(
+        [field_out / "detections.jsonl", ball_out / "detections.jsonl"],
+        merged_out,
+        iou_threshold=args.merge_dedupe_iou,
+    )
+    tracked = track_detections(
+        merged,
+        iou_threshold=args.track_iou_threshold,
+        max_age=args.track_max_age,
+    )
+    write_detections(tracks_out, tracked)
+
+    summary = summarize_tracks(tracked)
+    write_json(metrics_out, summary)
+
+    rendered = None
+    if args.render:
+        render_seconds = args.max_seconds
+        if render_seconds is None:
+            render_seconds = duration_seconds
+        rendered = render_demo_video(
+            args.video,
+            tracks_out,
+            video_out,
+            max_seconds=render_seconds,
+            trail_length=args.trail_length,
+        )
+
+    print(
+        json.dumps(
+            {
+                "video": args.video,
+                "frames": end_frame,
+                "field_prompt_frames": field_prompt_frames,
+                "ball_prompt_frames": ball_prompt_frames,
+                "detections": len(merged),
+                "tracks": len({det.track_id for det in tracked if det.track_id is not None}),
+                "paths": {
+                    "detections": str(merged_out),
+                    "tracks": str(tracks_out),
+                    "metrics": str(metrics_out),
+                    "demo": str(rendered) if rendered else None,
+                },
+                "metrics": summary,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def _run_sweep_for_process(
+    args: argparse.Namespace,
+    *,
+    classes: str,
+    prompt_frames: list[int],
+    window_size: int,
+    end_frame: int,
+    out: Path,
+    threshold: float,
+    dedupe_iou: float,
+) -> None:
+    sweep_args = argparse.Namespace(
+        config=args.config,
+        video=args.video,
+        out=str(out),
+        prompt_frames=",".join(str(frame) for frame in prompt_frames),
+        window_size=window_size,
+        end_frame=end_frame,
+        classes=classes,
+        threshold=threshold,
+        dedupe_iou=dedupe_iou,
+        backend=None,
+        model_id=None,
+        use_fa3=None,
+        offload_video_to_cpu=True,
+        offload_state_to_cpu=True,
+        clip_windows=args.clip_windows,
+    )
+    cmd_run_sam3_sweep(sweep_args)
+
+
+def _frame_anchors(end_frame: int, *, start: int, step: int) -> list[int]:
+    if end_frame <= 0:
+        return []
+    if step <= 0:
+        raise ValueError("Anchor step must be positive.")
+    anchors = list(range(start, end_frame, step))
+    if not anchors:
+        anchors = [0]
+    return anchors
 
 
 def _filtered_prompts(prompts: dict, classes_csv: str | None) -> dict:
