@@ -67,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--model-id", default=None)
     run.add_argument("--max-frames", type=int, default=None)
     run.add_argument("--stride", type=int, default=None)
+    run.add_argument("--prompt-frame-index", type=int, default=None)
     run.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=None)
     run.add_argument("--offload-video-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     run.add_argument("--offload-state-to-cpu", action=argparse.BooleanOptionalAction, default=None)
@@ -190,6 +191,11 @@ def cmd_run_sam3(args: argparse.Namespace) -> None:
         stride=args.stride or sam_config.get("stride", 1),
         threshold=float(sam_config.get("threshold", 0.45)),
         mask_threshold=float(sam_config.get("mask_threshold", 0.5)),
+        prompt_frame_index=(
+            args.prompt_frame_index
+            if args.prompt_frame_index is not None
+            else int(sam_config.get("prompt_frame_index", 0))
+        ),
         use_fa3=(
             args.use_fa3
             if args.use_fa3 is not None

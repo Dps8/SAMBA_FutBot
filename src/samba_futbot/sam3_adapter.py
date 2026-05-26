@@ -36,6 +36,7 @@ def run_sam3_video(
     use_fa3: bool = False,
     offload_video_to_cpu: bool = True,
     offload_state_to_cpu: bool = True,
+    prompt_frame_index: int = 0,
 ) -> list[Detection]:
     output_dir = Path(out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -51,6 +52,7 @@ def run_sam3_video(
             use_fa3=use_fa3,
             offload_video_to_cpu=offload_video_to_cpu,
             offload_state_to_cpu=offload_state_to_cpu,
+            prompt_frame_index=prompt_frame_index,
         )
     elif backend == "transformers":
         detections = _run_transformers_sam3(
@@ -81,6 +83,7 @@ def _run_official_sam3(
     use_fa3: bool,
     offload_video_to_cpu: bool,
     offload_state_to_cpu: bool,
+    prompt_frame_index: int,
 ) -> list[Detection]:
     try:
         from sam3.model_builder import (
@@ -116,14 +119,14 @@ def _run_official_sam3(
                 request={
                     "type": "add_prompt",
                     "session_id": session_id,
-                    "frame_index": 0,
+                    "frame_index": prompt_frame_index,
                     "text": prompt,
                 }
             )
             detections.extend(
                 _detections_from_processed(
                     processed=response.get("outputs", {}),
-                    frame_index=0,
+                    frame_index=prompt_frame_index,
                     class_name=class_name,
                     prompt=prompt,
                     out_dir=out_dir,
@@ -133,12 +136,14 @@ def _run_official_sam3(
             stream_request = {
                 "type": "propagate_in_video",
                 "session_id": session_id,
+                "propagation_direction": "forward",
+                "start_frame_index": prompt_frame_index,
                 "max_frame_num_to_track": max_frames,
             }
             if hasattr(predictor, "handle_stream_request"):
                 for processed in predictor.handle_stream_request(stream_request):
                     frame_index = _frame_index_from_output(processed)
-                    if frame_index == 0:
+                    if frame_index == prompt_frame_index:
                         continue
                     if max_frames is not None and frame_index >= max_frames:
                         break

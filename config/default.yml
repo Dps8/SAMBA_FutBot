@@ -12,7 +12,8 @@ sam3:
   # Stable baseline. Use facebook/sam3.1 for multiplex experiments.
   model_id: facebook/sam3
   backend: official
-  max_frames: 450
+  max_frames: 300
+  prompt_frame_index: 0
   stride: 2
   threshold: 0.45
   mask_threshold: 0.5
