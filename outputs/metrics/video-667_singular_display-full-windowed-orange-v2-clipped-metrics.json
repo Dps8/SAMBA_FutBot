@@ -1,0 +1,28 @@
+{
+  "frames_observed": 489,
+  "first_frame": 0,
+  "last_frame": 488,
+  "detections": 1821,
+  "tracks": 11,
+  "mean_track_length": 165.54545454545453,
+  "track_fragmentation_gaps": 0,
+  "classes": {
+    "robots": {
+      "detections": 1283,
+      "unique_tracks": 7,
+      "mean_score": 0.8197270389747917
+    },
+    "field": {
+      "detections": 412,
+      "unique_tracks": 2,
+      "mean_score": 0.5065066287818464
+    },
+    "ball": {
+      "detections": 126,
+      "unique_tracks": 2,
+      "mean_score": 0.8561630249023438
+    }
+  },
+  "mask_area_mean": 204348.74739154312,
+  "mask_area_std": 363474.10359097214
+}
