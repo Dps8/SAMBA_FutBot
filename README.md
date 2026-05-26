@@ -19,9 +19,14 @@ Para la categoria profesional, la innovacion propuesta combina:
 
 - **Prompt engineering avanzado:** ensamble de prompts por clase, filtros de area,
   prior espacial y refinamiento por puntos/cajas cuando sea necesario.
-- **SAM 3.1 Object Multiplex:** por defecto se usa `facebook/sam3.1` para video,
-  por su mejora de tracking multiobjeto. Cambia a `facebook/sam3` si el comite
-  exige el checkpoint base.
+- **SAM 3 estable:** por defecto se usa `facebook/sam3` para tener un baseline
+  reproducible. `facebook/sam3.1` queda disponible para experimentos de Object
+  Multiplex cuando el entorno tenga sus dependencias y memoria afinadas.
+- **Flash Attention 3 opcional:** `config/default.yml` deja `use_fa3: false` para
+  priorizar compatibilidad. Activalo con `--use-fa3` solo si el entorno tiene
+  `flash-attn-3` y runtime CUDA compatible.
+- **Uso de VRAM conservador:** el video y el estado se descargan a CPU por
+  defecto para poder correr SAM 3.1 en GPUs de 16 GB.
 - **Analisis deportivo:** homografia opcional a coordenadas de cancha, posesion,
   eventos y metricas operativas de continuidad de tracking.
 

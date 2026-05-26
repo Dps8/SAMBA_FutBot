@@ -33,6 +33,9 @@ def run_sam3_video(
     stride: int = 1,
     threshold: float = 0.45,
     mask_threshold: float = 0.5,
+    use_fa3: bool = False,
+    offload_video_to_cpu: bool = True,
+    offload_state_to_cpu: bool = True,
 ) -> list[Detection]:
     output_dir = Path(out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -45,6 +48,9 @@ def run_sam3_video(
             model_id=model_id,
             max_frames=max_frames,
             threshold=threshold,
+            use_fa3=use_fa3,
+            offload_video_to_cpu=offload_video_to_cpu,
+            offload_state_to_cpu=offload_state_to_cpu,
         )
     elif backend == "transformers":
         detections = _run_transformers_sam3(
@@ -72,6 +78,9 @@ def _run_official_sam3(
     model_id: str,
     max_frames: int | None,
     threshold: float,
+    use_fa3: bool,
+    offload_video_to_cpu: bool,
+    offload_state_to_cpu: bool,
 ) -> list[Detection]:
     try:
         from sam3.model_builder import (
@@ -84,7 +93,7 @@ def _run_official_sam3(
         ) from exc
 
     if "3.1" in model_id:
-        predictor = build_sam3_multiplex_video_predictor()
+        predictor = build_sam3_multiplex_video_predictor(use_fa3=use_fa3)
     else:
         predictor = build_sam3_video_predictor()
     _patch_start_session_for_init_signature(predictor)
@@ -95,7 +104,12 @@ def _run_official_sam3(
         session_id = None
         try:
             start = predictor.handle_request(
-                request={"type": "start_session", "resource_path": str(video_path)}
+                request={
+                    "type": "start_session",
+                    "resource_path": str(video_path),
+                    "offload_video_to_cpu": offload_video_to_cpu,
+                    "offload_state_to_cpu": offload_state_to_cpu,
+                }
             )
             session_id = start["session_id"]
             response = predictor.handle_request(
@@ -124,6 +138,8 @@ def _run_official_sam3(
             if hasattr(predictor, "handle_stream_request"):
                 for processed in predictor.handle_stream_request(stream_request):
                     frame_index = _frame_index_from_output(processed)
+                    if frame_index == 0:
+                        continue
                     if max_frames is not None and frame_index >= max_frames:
                         break
                     detections.extend(
@@ -156,7 +172,8 @@ def _run_official_sam3(
                     request={
                         "type": "close_session",
                         "session_id": session_id,
-                        "run_gc_collect": False,
+                        "run_gc_collect": True,
+                        "clear_cache_threshold": 0,
                     }
                 )
     return detections
@@ -258,7 +275,7 @@ def _detections_from_processed(
     if not isinstance(processed, dict):
         return []
     processed = _normalize_output_keys(processed)
-    boxes = _to_numpy(processed.get("boxes"))
+    boxes = _boxes_from_processed(processed)
     scores = _to_numpy(processed.get("scores"))
     object_ids = _to_numpy(processed.get("object_ids"))
     masks = _normalize_masks(_to_numpy(processed.get("masks")))
@@ -269,8 +286,15 @@ def _detections_from_processed(
         return []
 
     boxes = np.asarray(boxes, dtype=np.float32)
+    if boxes.size == 0:
+        return []
     if boxes.ndim == 1:
+        if boxes.size != 4:
+            return []
         boxes = boxes.reshape(1, 4)
+    if boxes.shape[-1] != 4:
+        return []
+    boxes = _scale_normalized_boxes(boxes, masks)
     count = len(boxes)
     if scores is None:
         scores = np.ones((count,), dtype=np.float32)
@@ -337,6 +361,43 @@ def _mask_to_box(mask: np.ndarray) -> tuple[float, float, float, float]:
     return (float(xs.min()), float(ys.min()), float(xs.max() + 1), float(ys.max() + 1))
 
 
+def _boxes_from_processed(processed: dict[str, Any]) -> np.ndarray | None:
+    boxes = _to_numpy(processed.get("boxes"))
+    if boxes is not None:
+        return boxes
+
+    for key in ("out_boxes_xywh", "boxes_xywh", "pred_boxes_xywh"):
+        xywh = _to_numpy(processed.get(key))
+        if xywh is None:
+            continue
+        xywh = np.asarray(xywh, dtype=np.float32)
+        if xywh.size == 0:
+            return xywh.reshape(0, 4)
+        if xywh.ndim == 1:
+            if xywh.size != 4:
+                return None
+            xywh = xywh.reshape(1, 4)
+        boxes_xyxy = xywh.copy()
+        boxes_xyxy[..., 2] = xywh[..., 0] + xywh[..., 2]
+        boxes_xyxy[..., 3] = xywh[..., 1] + xywh[..., 3]
+        return boxes_xyxy
+    return None
+
+
+def _scale_normalized_boxes(
+    boxes: np.ndarray, masks: np.ndarray | None
+) -> np.ndarray:
+    if masks is None or boxes.size == 0:
+        return boxes
+    if float(np.nanmax(boxes)) > 2.0:
+        return boxes
+    height, width = masks.shape[-2:]
+    scaled = boxes.copy()
+    scaled[..., [0, 2]] *= float(width)
+    scaled[..., [1, 3]] *= float(height)
+    return scaled
+
+
 def _safe_name(text: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in text.lower()).strip("_")[:48]
 
@@ -398,6 +459,7 @@ def _normalize_output_keys(output: dict[str, Any]) -> dict[str, Any]:
         "out_boxes": "boxes",
         "pred_boxes": "boxes",
         "out_scores": "scores",
+        "out_probs": "scores",
         "pred_scores": "scores",
         "out_obj_ids": "object_ids",
         "obj_ids": "object_ids",

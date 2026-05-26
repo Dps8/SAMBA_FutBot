@@ -9,13 +9,16 @@ data:
   frame_dir: data/frames
 
 sam3:
-  # Use facebook/sam3 if the committee requests the base checkpoint exactly.
-  model_id: facebook/sam3.1
+  # Stable baseline. Use facebook/sam3.1 for multiplex experiments.
+  model_id: facebook/sam3
   backend: official
   max_frames: 450
   stride: 2
   threshold: 0.45
   mask_threshold: 0.5
+  use_fa3: false
+  offload_video_to_cpu: true
+  offload_state_to_cpu: true
   prompts:
     field:
       - soccer field
