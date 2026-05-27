@@ -91,21 +91,33 @@ def sample_frames(
         raise FileNotFoundError(f"Could not open video: {video_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     frame_stride = stride or max(1, int(round((every_seconds or 1.0) * fps)))
     saved: list[Path] = []
-    frame_index = 0
 
-    while True:
+    if total_frames > 0:
+        frame_indices = range(0, total_frames, frame_stride)
+    else:
+        frame_indices = _iter_sequential_frame_indices()
+
+    for frame_index in frame_indices:
+        if total_frames > 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
         ok, frame = cap.read()
         if not ok:
             break
-        if frame_index % frame_stride == 0:
-            out_path = output_dir / f"frame_{frame_index:06d}.jpg"
-            cv2.imwrite(str(out_path), frame)
-            saved.append(out_path)
-            if max_frames is not None and len(saved) >= max_frames:
-                break
-        frame_index += 1
+        out_path = output_dir / f"frame_{frame_index:06d}.jpg"
+        cv2.imwrite(str(out_path), frame)
+        saved.append(out_path)
+        if max_frames is not None and len(saved) >= max_frames:
+            break
 
     cap.release()
     return saved
+
+
+def _iter_sequential_frame_indices():
+    frame_index = 0
+    while True:
+        yield frame_index
+        frame_index += 1
