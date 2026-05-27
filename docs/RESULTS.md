@@ -16,7 +16,6 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `video-848_singular_display.mov` | 489 | 1348 | 244 | 3 | `outputs/videos/video-848_singular_display-full-windowed-orange-v2-clipped-demo.mp4` |
 | `IMG_9866.MOV` | 102 | 276 | 74 | 2 | `outputs/videos/IMG_9866-top-camera-v1-demo.mp4` |
 | `IMG_9866.MOV` | 102 | 365 | 74 | 2 | `outputs/videos/IMG_9866-top-camera-orange-context-v2-demo.mp4` |
-| `IMG_9933_f008995_10s.mp4` | 300 | 931 | 124 | 1 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f008995_10s-top-context-v1-demo.mp4` |
 
 ## Enriched Ball And Event Analysis
 
@@ -31,7 +30,6 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `video-848_singular_display.mov` | 46.3% | 164.1 | 755.7 | 7 |
 | `IMG_9866.MOV` | 72.5% | 61.7 | 271.5 | 0 |
 | `IMG_9866.MOV` contextual top-camera prompts | 59.8% in-play | 72.1 | 271.5 | 0 |
-| `IMG_9933_f008995_10s.mp4` top-camera 18abril | 41.3% in-play | 11.9 | 33.5 | 0 |
 
 `video-680` has an unrealistic max ball speed, which flags a likely ball-track
 jump. This is useful as an automatic QA signal for track fragmentation.
@@ -45,15 +43,6 @@ robot-possession context for the orange ball, detects the field in 89/102 frames
 and reports ball trajectory only when the ball is on the field or close enough to
 a robot to count as possession. This view is the best candidate for the next
 professional visual layer: heatmaps, zones, possession maps and homography.
-
-For `18abril/Camara_superior`, the long videos are first sampled into contact
-sheets, then promoted to short clips before running SAM3. Current reviewed
-outputs are organized under
-`outputs/review/2026-05-27/18abril_top_camera/` with `good`, `latest` and
-`needs_review` folders. The strongest current clip is
-`IMG_9933_f008995_10s`, while `IMG_9938_f001799_10s` and
-`IMG_9933_f017990_10s` are kept as QA cases for improving ball prompts and
-post-processing.
 
 ## Artifact Types
 
