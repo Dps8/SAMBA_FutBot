@@ -119,6 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--possession-radius-px", type=float, default=None)
     process.add_argument("--collision-radius-px", type=float, default=None)
     process.add_argument("--goal-x-margin-ratio", type=float, default=None)
+    process.add_argument("--in-play-field-margin-px", type=float, default=None)
     process.add_argument("--trail-length", type=int, default=45)
     process.add_argument("--max-seconds", type=float, default=None)
     process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -138,12 +139,15 @@ def build_parser() -> argparse.ArgumentParser:
     events.add_argument("--possession-radius-px", type=float, default=90)
     events.add_argument("--collision-radius-px", type=float, default=55)
     events.add_argument("--frame-width", type=int, default=None)
+    events.add_argument("--in-play-field-margin-px", type=float, default=8.0)
     events.set_defaults(func=cmd_events)
 
     metrics = sub.add_parser("metrics", help="Calcular metricas operativas.")
     metrics.add_argument("--tracks", required=True)
     metrics.add_argument("--out", required=True)
     metrics.add_argument("--fps", type=float, default=None)
+    metrics.add_argument("--possession-radius-px", type=float, default=90.0)
+    metrics.add_argument("--in-play-field-margin-px", type=float, default=8.0)
     metrics.set_defaults(func=cmd_metrics)
 
     render = sub.add_parser("render-demo", help="Renderizar video lado a lado.")
@@ -436,15 +440,26 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     )
     write_detections(tracks_out, tracked)
 
-    summary = summarize_tracks(tracked, fps=fps)
+    possession_radius_px = (
+        args.possession_radius_px
+        if args.possession_radius_px is not None
+        else float(analysis_config.get("possession_radius_px", 90))
+    )
+    field_margin_px = (
+        args.in_play_field_margin_px
+        if args.in_play_field_margin_px is not None
+        else float(analysis_config.get("in_play_field_margin_px", 8))
+    )
+    summary = summarize_tracks(
+        tracked,
+        fps=fps,
+        possession_radius_px=possession_radius_px,
+        field_margin_px=field_margin_px,
+    )
     write_json(metrics_out, summary)
     events = detect_events(
         tracked,
-        possession_radius_px=(
-            args.possession_radius_px
-            if args.possession_radius_px is not None
-            else float(analysis_config.get("possession_radius_px", 90))
-        ),
+        possession_radius_px=possession_radius_px,
         collision_radius_px=(
             args.collision_radius_px
             if args.collision_radius_px is not None
@@ -456,6 +471,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
             if args.goal_x_margin_ratio is not None
             else float(analysis_config.get("goal_x_margin_ratio", 0.08))
         ),
+        field_margin_px=field_margin_px,
     )
     write_events(events_out, events)
 
@@ -562,13 +578,19 @@ def cmd_events(args: argparse.Namespace) -> None:
         possession_radius_px=args.possession_radius_px,
         collision_radius_px=args.collision_radius_px,
         frame_width=args.frame_width,
+        field_margin_px=args.in_play_field_margin_px,
     )
     write_events(args.out, events)
     print(json.dumps({"events_out": args.out, "events": len(events)}, indent=2))
 
 
 def cmd_metrics(args: argparse.Namespace) -> None:
-    summary = summarize_tracks(read_detections(args.tracks), fps=args.fps)
+    summary = summarize_tracks(
+        read_detections(args.tracks),
+        fps=args.fps,
+        possession_radius_px=args.possession_radius_px,
+        field_margin_px=args.in_play_field_margin_px,
+    )
     write_json(args.out, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

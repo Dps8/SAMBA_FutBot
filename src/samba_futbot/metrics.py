@@ -5,13 +5,23 @@ import math
 from statistics import mean, pstdev
 from typing import Iterable
 
+from .play_state import BALL_CLASSES, in_play_balls
 from .types import Detection
 
-BALL_CLASSES = {"ball", "balon", "soccer_ball"}
 
-
-def summarize_tracks(detections: Iterable[Detection], *, fps: float | None = None) -> dict:
+def summarize_tracks(
+    detections: Iterable[Detection],
+    *,
+    fps: float | None = None,
+    possession_radius_px: float = 90.0,
+    field_margin_px: float = 8.0,
+) -> dict:
     detections_list = list(detections)
+    in_play_ball_dets = in_play_balls(
+        detections_list,
+        possession_radius_px=possession_radius_px,
+        field_margin_px=field_margin_px,
+    )
     frames = sorted({det.frame_index for det in detections_list})
     by_class: dict[str, list[Detection]] = defaultdict(list)
     by_track: dict[int, list[Detection]] = defaultdict(list)
@@ -27,6 +37,11 @@ def summarize_tracks(detections: Iterable[Detection], *, fps: float | None = Non
         tracks = {det.track_id for det in class_dets if det.track_id is not None}
         class_frames = {det.frame_index for det in class_dets}
         class_gaps = [_count_gaps(items) for items in _tracks_for_class(class_dets).values()]
+        in_play_frames = {
+            det.frame_index
+            for det in in_play_ball_dets
+            if class_name in BALL_CLASSES and det.class_name == class_name
+        }
         class_summary[class_name] = {
             "detections": len(class_dets),
             "unique_tracks": len(tracks),
@@ -37,11 +52,20 @@ def summarize_tracks(detections: Iterable[Detection], *, fps: float | None = Non
             ),
             "track_fragmentation_gaps": sum(class_gaps),
         }
+        if class_name in BALL_CLASSES:
+            class_summary[class_name]["in_play_detections"] = len(in_play_ball_dets)
+            class_summary[class_name]["in_play_frames"] = len(in_play_frames)
+            class_summary[class_name]["in_play_coverage_ratio"] = (
+                len(in_play_frames) / observed_span if observed_span else 0.0
+            )
+            class_summary[class_name]["in_play_duration_seconds"] = (
+                len(in_play_frames) / fps if fps and fps > 0 else None
+            )
 
     lengths = [len(items) for items in by_track.values()]
     gaps = [_count_gaps(items) for items in by_track.values()]
     areas = [det.area for det in detections_list if det.area is not None and det.area > 0]
-    motion = _motion_summary(detections_list, fps=fps)
+    motion = _motion_summary(detections_list, in_play_ball_dets=in_play_ball_dets, fps=fps)
 
     return {
         "frames_observed": len(frames),
@@ -71,17 +95,32 @@ def _tracks_for_class(detections: Iterable[Detection]) -> dict[int, list[Detecti
     return tracks
 
 
-def _motion_summary(detections: list[Detection], *, fps: float | None = None) -> dict:
-    ball_speeds = _class_speeds(
+def _motion_summary(
+    detections: list[Detection],
+    *,
+    in_play_ball_dets: list[Detection],
+    fps: float | None = None,
+) -> dict:
+    candidate_ball_speeds = _class_speeds(
         [det for det in detections if det.class_name in BALL_CLASSES]
     )
-    ball_summary = _speed_summary(ball_speeds)
+    ball_summary = _speed_summary(_class_speeds(in_play_ball_dets))
+    ball_summary["trajectory_scope"] = "in_play"
+    ball_summary["raw_candidates"] = _speed_summary(candidate_ball_speeds)
     if fps and fps > 0:
         ball_summary["mean_speed_px_second"] = ball_summary["mean_speed_px_frame"] * fps
         ball_summary["max_speed_px_second"] = ball_summary["max_speed_px_frame"] * fps
+        ball_summary["raw_candidates"]["mean_speed_px_second"] = (
+            ball_summary["raw_candidates"]["mean_speed_px_frame"] * fps
+        )
+        ball_summary["raw_candidates"]["max_speed_px_second"] = (
+            ball_summary["raw_candidates"]["max_speed_px_frame"] * fps
+        )
     else:
         ball_summary["mean_speed_px_second"] = None
         ball_summary["max_speed_px_second"] = None
+        ball_summary["raw_candidates"]["mean_speed_px_second"] = None
+        ball_summary["raw_candidates"]["max_speed_px_second"] = None
     return {"ball": ball_summary}
 
 

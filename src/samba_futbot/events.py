@@ -1,26 +1,10 @@
 from __future__ import annotations
 
-import math
-from collections import defaultdict
 from itertools import combinations
 from typing import Iterable
 
+from .play_state import BALL_CLASSES, ROBOT_CLASSES, ball_in_play, distance, group_by_frame
 from .types import Detection, Event
-
-
-ROBOT_CLASSES = {"robot", "robots", "robot_allied", "robot_rival"}
-BALL_CLASSES = {"ball", "balon", "soccer_ball"}
-
-
-def distance(a: tuple[float, float], b: tuple[float, float]) -> float:
-    return math.hypot(a[0] - b[0], a[1] - b[1])
-
-
-def group_by_frame(detections: Iterable[Detection]) -> dict[int, list[Detection]]:
-    frames: dict[int, list[Detection]] = defaultdict(list)
-    for detection in detections:
-        frames[detection.frame_index].append(detection)
-    return frames
 
 
 def estimate_possession(
@@ -49,6 +33,7 @@ def detect_events(
     collision_radius_px: float = 55.0,
     frame_width: int | None = None,
     goal_x_margin_ratio: float = 0.08,
+    field_margin_px: float = 8.0,
 ) -> list[Event]:
     detections_list = list(detections)
     frames = group_by_frame(detections_list)
@@ -105,12 +90,22 @@ def detect_events(
                 )
             )
 
-        balls = [det for det in frames[frame_index] if det.class_name in BALL_CLASSES]
+        balls = [
+            det
+            for det in frames[frame_index]
+            if det.class_name in BALL_CLASSES
+            and ball_in_play(
+                det,
+                frames[frame_index],
+                possession_radius_px=possession_radius_px,
+                field_margin_px=field_margin_px,
+            )
+        ]
         ball = max(balls, key=lambda det: det.score) if balls else None
         if ball and last_ball and frame_width:
             dx = ball.centroid[0] - last_ball.centroid[0]
             dy = ball.centroid[1] - last_ball.centroid[1]
-            speed = math.hypot(dx, dy)
+            speed = distance(ball.centroid, last_ball.centroid)
             margin = frame_width * goal_x_margin_ratio
             near_goal = ball.centroid[0] <= margin or ball.centroid[0] >= frame_width - margin
             if near_goal and speed > 8:

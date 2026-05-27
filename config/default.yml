@@ -23,11 +23,18 @@ sam3:
   prompts:
     field:
       - green soccer field
+      - green soccer pitch
+      - green robotic soccer field
+      - green indoor soccer field
     robots:
       - robot
     ball:
       - small orange ball
+      - small orange ball on green soccer field
+      - small orange ball in robot possession
+      - orange ball near robot
       - orange ball
+      - pelota naranja sobre campo verde
       - pelota naranja
 
 tracking:
@@ -41,6 +48,7 @@ tracking:
 analysis:
   fps: 30
   possession_radius_px: 90
+  in_play_field_margin_px: 8
   collision_radius_px: 55
   goal_x_margin_ratio: 0.08
 

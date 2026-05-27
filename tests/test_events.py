@@ -26,6 +26,16 @@ class EventsTest(unittest.TestCase):
         events = detect_events(detections, collision_radius_px=25)
         self.assertTrue(any(event.event_type == "collision" for event in events))
 
+    def test_off_field_ball_does_not_trigger_shot(self):
+        detections = [
+            Detection(0, "ball", 1.0, (5, 200, 9, 204), track_id=10),
+            Detection(1, "ball", 1.0, (40, 200, 44, 204), track_id=10),
+        ]
+
+        events = detect_events(detections, frame_width=50, goal_x_margin_ratio=1.0)
+
+        self.assertFalse(any(event.event_type == "shot" for event in events))
+
 
 if __name__ == "__main__":
     unittest.main()
