@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .config import deep_get, load_config
+from .color_ball import detect_orange_ball
 from .drive import (
     download_manifest_files,
     download_drive_file,
@@ -20,7 +21,13 @@ from .sam3_adapter import run_sam3_video
 from .tracking import track_detections
 from .video import extract_video_clip, sample_frames, video_info
 from .visualize import render_demo_video
-from .windowing import merge_detection_files, offset_detections, parse_int_list, write_window_manifest
+from .windowing import (
+    filter_edge_ball_detections,
+    merge_detection_files,
+    offset_detections,
+    parse_int_list,
+    write_window_manifest,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -98,6 +105,27 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--dedupe-iou", type=float, default=0.9)
     merge.set_defaults(func=cmd_merge_detections)
 
+    filter_dets = sub.add_parser("filter-detections", help="Filtrar falsos positivos geometricos.")
+    filter_dets.add_argument("--detections", required=True)
+    filter_dets.add_argument("--out", required=True)
+    filter_dets.add_argument("--frame-width", type=int, required=True)
+    filter_dets.add_argument("--frame-height", type=int, required=True)
+    filter_dets.add_argument("--ball-border-margin-px", type=float, default=4.0)
+    filter_dets.set_defaults(func=cmd_filter_detections)
+
+    color_ball = sub.add_parser("detect-orange-ball", help="Detectar pelota naranja por color/forma.")
+    color_ball.add_argument("--video", required=True)
+    color_ball.add_argument("--out", required=True)
+    color_ball.add_argument("--max-frames", type=int, default=None)
+    color_ball.add_argument("--min-area", type=float, default=80.0)
+    color_ball.add_argument("--max-area", type=float, default=2200.0)
+    color_ball.add_argument("--min-circularity", type=float, default=0.45)
+    color_ball.add_argument("--context-detections", default=None)
+    color_ball.add_argument("--robot-margin-px", type=float, default=8.0)
+    color_ball.add_argument("--border-margin-px", type=float, default=4.0)
+    color_ball.add_argument("--max-per-frame", type=int, default=1)
+    color_ball.set_defaults(func=cmd_detect_orange_ball)
+
     process = sub.add_parser("process-video", help="Pipeline completo: SAM3, merge, tracking, metricas y demo.")
     process.add_argument("--config", default="config/default.yml")
     process.add_argument("--video", required=True)
@@ -120,6 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--collision-radius-px", type=float, default=None)
     process.add_argument("--goal-x-margin-ratio", type=float, default=None)
     process.add_argument("--in-play-field-margin-px", type=float, default=None)
+    process.add_argument("--ball-border-margin-px", type=float, default=None)
     process.add_argument("--trail-length", type=int, default=45)
     process.add_argument("--max-seconds", type=float, default=None)
     process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -378,6 +407,44 @@ def cmd_merge_detections(args: argparse.Namespace) -> None:
     print(json.dumps({"out": args.out, "inputs": len(inputs), "detections": len(merged)}, indent=2))
 
 
+def cmd_filter_detections(args: argparse.Namespace) -> None:
+    detections = read_detections(args.detections)
+    filtered = filter_edge_ball_detections(
+        detections,
+        frame_width=args.frame_width,
+        frame_height=args.frame_height,
+        border_margin_px=args.ball_border_margin_px,
+    )
+    write_detections(args.out, filtered)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "input_detections": len(detections),
+                "detections": len(filtered),
+                "removed": len(detections) - len(filtered),
+            },
+            indent=2,
+        )
+    )
+
+
+def cmd_detect_orange_ball(args: argparse.Namespace) -> None:
+    detections = detect_orange_ball(
+        args.video,
+        args.out,
+        max_frames=args.max_frames,
+        min_area=args.min_area,
+        max_area=args.max_area,
+        min_circularity=args.min_circularity,
+        context_detections_path=args.context_detections,
+        robot_margin_px=args.robot_margin_px,
+        border_margin_px=args.border_margin_px,
+        max_per_frame=args.max_per_frame,
+    )
+    print(json.dumps({"out": args.out, "detections": len(detections)}, indent=2))
+
+
 def cmd_process_video(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     analysis_config = config.get("analysis", {})
@@ -433,6 +500,21 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         merged_out,
         iou_threshold=args.merge_dedupe_iou,
     )
+    ball_border_margin_px = (
+        args.ball_border_margin_px
+        if args.ball_border_margin_px is not None
+        else float(analysis_config.get("ball_border_margin_px", 4))
+    )
+    filtered = filter_edge_ball_detections(
+        merged,
+        frame_width=int(info.get("width") or 0) or None,
+        frame_height=int(info.get("height") or 0) or None,
+        border_margin_px=ball_border_margin_px,
+    )
+    edge_ball_filter_removed = len(merged) - len(filtered)
+    if len(filtered) != len(merged):
+        write_detections(merged_out, filtered)
+    merged = filtered
     tracked = track_detections(
         merged,
         iou_threshold=args.track_iou_threshold,
@@ -496,6 +578,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                 "field_prompt_frames": field_prompt_frames,
                 "ball_prompt_frames": ball_prompt_frames,
                 "detections": len(merged),
+                "edge_ball_filter_removed": edge_ball_filter_removed,
                 "tracks": len({det.track_id for det in tracked if det.track_id is not None}),
                 "paths": {
                     "detections": str(merged_out),

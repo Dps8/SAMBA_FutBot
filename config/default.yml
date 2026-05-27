@@ -49,6 +49,7 @@ analysis:
   fps: 30
   possession_radius_px: 90
   in_play_field_margin_px: 8
+  ball_border_margin_px: 4
   collision_radius_px: 55
   goal_x_margin_ratio: 0.08
 

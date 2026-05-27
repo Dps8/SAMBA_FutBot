@@ -1,0 +1,58 @@
+{
+  "frames_observed": 300,
+  "first_frame": 0,
+  "last_frame": 299,
+  "detections": 931,
+  "tracks": 6,
+  "mean_track_length": 155.16666666666666,
+  "track_fragmentation_gaps": 53,
+  "classes": {
+    "field": {
+      "detections": 300,
+      "unique_tracks": 1,
+      "mean_score": 0.8210930585861206,
+      "frames_with_detection": 300,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0
+    },
+    "robots": {
+      "detections": 507,
+      "unique_tracks": 4,
+      "mean_score": 0.6948316059639232,
+      "frames_with_detection": 130,
+      "frame_coverage_ratio": 0.43333333333333335,
+      "track_fragmentation_gaps": 53
+    },
+    "ball": {
+      "detections": 124,
+      "unique_tracks": 1,
+      "mean_score": 0.5343565008332652,
+      "frames_with_detection": 124,
+      "frame_coverage_ratio": 0.41333333333333333,
+      "track_fragmentation_gaps": 0,
+      "in_play_detections": 124,
+      "in_play_frames": 124,
+      "in_play_coverage_ratio": 0.41333333333333333,
+      "in_play_duration_seconds": 4.134987328264639
+    }
+  },
+  "mask_area_mean": 476311.954887218,
+  "mask_area_std": 675237.3833986098,
+  "motion": {
+    "ball": {
+      "samples": 123,
+      "mean_speed_px_frame": 0.3983369260872212,
+      "max_speed_px_frame": 1.1180885805864356,
+      "trajectory_scope": "in_play",
+      "raw_candidates": {
+        "samples": 123,
+        "mean_speed_px_frame": 0.3983369260872212,
+        "max_speed_px_frame": 1.1180885805864356,
+        "mean_speed_px_second": 11.94532773950359,
+        "max_speed_px_second": 33.529240354626026
+      },
+      "mean_speed_px_second": 11.94532773950359,
+      "max_speed_px_second": 33.529240354626026
+    }
+  }
+}

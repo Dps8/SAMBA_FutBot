@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .io_utils import read_detections, write_detections, write_json
+from .play_state import BALL_CLASSES
 from .tracking import iou
 from .types import Detection
 
@@ -46,6 +47,33 @@ def merge_detection_files(
     merged = deduplicate_detections(detections, iou_threshold=iou_threshold)
     write_detections(out_path, merged)
     return merged
+
+
+def filter_edge_ball_detections(
+    detections: Iterable[Detection],
+    *,
+    frame_width: int | None,
+    frame_height: int | None,
+    border_margin_px: float = 4.0,
+) -> list[Detection]:
+    if not frame_width or not frame_height or border_margin_px <= 0:
+        return list(detections)
+
+    kept: list[Detection] = []
+    for det in detections:
+        if det.class_name not in BALL_CLASSES:
+            kept.append(det)
+            continue
+        x1, y1, x2, y2 = det.box
+        touches_border = (
+            x1 <= border_margin_px
+            or y1 <= border_margin_px
+            or x2 >= frame_width - border_margin_px
+            or y2 >= frame_height - border_margin_px
+        )
+        if not touches_border:
+            kept.append(det)
+    return kept
 
 
 def offset_detections(detections: list[Detection], frame_offset: int) -> list[Detection]:

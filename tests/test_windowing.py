@@ -6,6 +6,7 @@ from samba_futbot.io_utils import write_detections
 from samba_futbot.types import Detection
 from samba_futbot.windowing import (
     deduplicate_detections,
+    filter_edge_ball_detections,
     merge_detection_files,
     offset_detections,
     parse_int_list,
@@ -49,6 +50,23 @@ class WindowingTest(unittest.TestCase):
         self.assertEqual(shifted[0].frame_index, 153)
         self.assertEqual(shifted[0].extra["clip_frame_index"], 3)
         self.assertEqual(shifted[0].extra["source"], "clip")
+
+    def test_filter_edge_ball_detections_removes_border_ball_only(self):
+        detections = [
+            Detection(0, "ball", 0.8, (0, 20, 10, 30)),
+            Detection(0, "ball", 0.8, (20, 20, 30, 30)),
+            Detection(0, "robots", 0.8, (0, 20, 10, 30)),
+        ]
+
+        filtered = filter_edge_ball_detections(
+            detections,
+            frame_width=100,
+            frame_height=100,
+            border_margin_px=4,
+        )
+
+        self.assertEqual(len(filtered), 2)
+        self.assertEqual([det.class_name for det in filtered], ["ball", "robots"])
 
 
 if __name__ == "__main__":
