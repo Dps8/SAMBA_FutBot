@@ -1,0 +1,79 @@
+[
+  {
+    "frame_index": 56,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 76,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 99,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 127,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 269,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 342,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 385,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      1,
+      2
+    ],
+    "metadata": {}
+  }
+]

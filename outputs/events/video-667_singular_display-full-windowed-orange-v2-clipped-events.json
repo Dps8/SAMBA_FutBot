@@ -1,0 +1,110 @@
+[
+  {
+    "frame_index": 414,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 258.56529292239054
+    }
+  },
+  {
+    "frame_index": 415,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 10.920171842313707
+    }
+  },
+  {
+    "frame_index": 416,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 9.656603513499526
+    }
+  },
+  {
+    "frame_index": 417,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 8.732121321906085
+    }
+  },
+  {
+    "frame_index": 420,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 9.552489083201293
+    }
+  },
+  {
+    "frame_index": 421,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 8.500009312400815
+    }
+  },
+  {
+    "frame_index": 422,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 8.139410298049853
+    }
+  },
+  {
+    "frame_index": 423,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 9.192388155425117
+    }
+  },
+  {
+    "frame_index": 424,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia zona de gol",
+    "confidence": 0.5,
+    "actors": [
+      10
+    ],
+    "metadata": {
+      "speed_px_frame": 11.672617529928752
+    }
+  }
+]

@@ -1,0 +1,24 @@
+[
+  {
+    "frame_index": 368,
+    "event_type": "pass",
+    "description": "Posesion cambia dentro de unknown",
+    "confidence": 0.65,
+    "actors": [
+      3,
+      4
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 382,
+    "event_type": "pass",
+    "description": "Posesion cambia dentro de unknown",
+    "confidence": 0.65,
+    "actors": [
+      4,
+      3
+    ],
+    "metadata": {}
+  }
+]

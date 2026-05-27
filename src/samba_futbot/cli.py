@@ -116,6 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--merge-dedupe-iou", type=float, default=0.85)
     process.add_argument("--track-iou-threshold", type=float, default=0.05)
     process.add_argument("--track-max-age", type=int, default=20)
+    process.add_argument("--possession-radius-px", type=float, default=None)
+    process.add_argument("--collision-radius-px", type=float, default=None)
+    process.add_argument("--goal-x-margin-ratio", type=float, default=None)
     process.add_argument("--trail-length", type=int, default=45)
     process.add_argument("--max-seconds", type=float, default=None)
     process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -140,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     metrics = sub.add_parser("metrics", help="Calcular metricas operativas.")
     metrics.add_argument("--tracks", required=True)
     metrics.add_argument("--out", required=True)
+    metrics.add_argument("--fps", type=float, default=None)
     metrics.set_defaults(func=cmd_metrics)
 
     render = sub.add_parser("render-demo", help="Renderizar video lado a lado.")
@@ -371,8 +375,11 @@ def cmd_merge_detections(args: argparse.Namespace) -> None:
 
 
 def cmd_process_video(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    analysis_config = config.get("analysis", {})
     info = video_info(args.video)
     end_frame = int(info["frames"])
+    fps = float(info.get("fps") or analysis_config.get("fps", 30))
     duration_seconds = info.get("duration_seconds")
     stem = Path(args.video).stem
     results_dir = Path(args.results_dir)
@@ -393,6 +400,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     merged_out = results_dir / "detections" / f"{stem}-{args.suffix}" / "detections.jsonl"
     tracks_out = results_dir / "tracks" / f"{stem}-{args.suffix}-tracks.jsonl"
     metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
+    events_out = results_dir / "events" / f"{stem}-{args.suffix}-events.json"
     video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
 
     _run_sweep_for_process(
@@ -428,8 +436,28 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     )
     write_detections(tracks_out, tracked)
 
-    summary = summarize_tracks(tracked)
+    summary = summarize_tracks(tracked, fps=fps)
     write_json(metrics_out, summary)
+    events = detect_events(
+        tracked,
+        possession_radius_px=(
+            args.possession_radius_px
+            if args.possession_radius_px is not None
+            else float(analysis_config.get("possession_radius_px", 90))
+        ),
+        collision_radius_px=(
+            args.collision_radius_px
+            if args.collision_radius_px is not None
+            else float(analysis_config.get("collision_radius_px", 55))
+        ),
+        frame_width=int(info.get("width") or 0) or None,
+        goal_x_margin_ratio=(
+            args.goal_x_margin_ratio
+            if args.goal_x_margin_ratio is not None
+            else float(analysis_config.get("goal_x_margin_ratio", 0.08))
+        ),
+    )
+    write_events(events_out, events)
 
     rendered = None
     if args.render:
@@ -457,9 +485,11 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "detections": str(merged_out),
                     "tracks": str(tracks_out),
                     "metrics": str(metrics_out),
+                    "events": str(events_out),
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
+                "events": len(events),
             },
             ensure_ascii=False,
             indent=2,
@@ -538,7 +568,7 @@ def cmd_events(args: argparse.Namespace) -> None:
 
 
 def cmd_metrics(args: argparse.Namespace) -> None:
-    summary = summarize_tracks(read_detections(args.tracks))
+    summary = summarize_tracks(read_detections(args.tracks), fps=args.fps)
     write_json(args.out, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

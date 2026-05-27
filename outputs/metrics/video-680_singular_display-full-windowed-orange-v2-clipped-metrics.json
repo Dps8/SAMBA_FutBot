@@ -10,19 +10,37 @@
     "robots": {
       "detections": 1092,
       "unique_tracks": 3,
-      "mean_score": 0.7438293911598541
+      "mean_score": 0.7438293911598541,
+      "frames_with_detection": 735,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0
     },
     "field": {
       "detections": 207,
       "unique_tracks": 2,
-      "mean_score": 0.5858764541897796
+      "mean_score": 0.5858764541897796,
+      "frames_with_detection": 207,
+      "frame_coverage_ratio": 0.2816326530612245,
+      "track_fragmentation_gaps": 0
     },
     "ball": {
       "detections": 767,
       "unique_tracks": 21,
-      "mean_score": 0.8237320672735241
+      "mean_score": 0.8237320672735241,
+      "frames_with_detection": 524,
+      "frame_coverage_ratio": 0.7129251700680272,
+      "track_fragmentation_gaps": 1
     }
   },
   "mask_area_mean": 147021.0121124031,
-  "mask_area_std": 350291.20669984823
+  "mask_area_std": 350291.20669984823,
+  "motion": {
+    "ball": {
+      "samples": 746,
+      "mean_speed_px_frame": 9.415931173712226,
+      "max_speed_px_frame": 319.6723961447765,
+      "mean_speed_px_second": 562.3545026553483,
+      "max_speed_px_second": 19092.02690951333
+    }
+  }
 }

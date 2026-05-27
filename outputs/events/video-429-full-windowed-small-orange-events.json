@@ -1,0 +1,90 @@
+[
+  {
+    "frame_index": 142,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      2,
+      4
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 224,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      2,
+      4
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 274,
+    "event_type": "pass",
+    "description": "Posesion cambia dentro de unknown",
+    "confidence": 0.65,
+    "actors": [
+      2,
+      4
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 288,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      2,
+      4
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 325,
+    "event_type": "pass",
+    "description": "Posesion cambia dentro de unknown",
+    "confidence": 0.65,
+    "actors": [
+      4,
+      2
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 351,
+    "event_type": "pass",
+    "description": "Posesion cambia dentro de unknown",
+    "confidence": 0.65,
+    "actors": [
+      2,
+      4
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 377,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      4,
+      3
+    ],
+    "metadata": {}
+  },
+  {
+    "frame_index": 440,
+    "event_type": "collision",
+    "description": "Dos robots estan a distancia de colision",
+    "confidence": 0.55,
+    "actors": [
+      4,
+      3
+    ],
+    "metadata": {}
+  }
+]
