@@ -1,0 +1,38 @@
+{
+  "frames_observed": 102,
+  "first_frame": 0,
+  "last_frame": 101,
+  "detections": 276,
+  "tracks": 4,
+  "mean_track_length": 69,
+  "track_fragmentation_gaps": 0,
+  "classes": {
+    "ball": {
+      "detections": 74,
+      "unique_tracks": 2,
+      "mean_score": 0.8400000333786011,
+      "frames_with_detection": 74,
+      "frame_coverage_ratio": 0.7254901960784313,
+      "track_fragmentation_gaps": 0
+    },
+    "robots": {
+      "detections": 202,
+      "unique_tracks": 2,
+      "mean_score": 0.6161500699449294,
+      "frames_with_detection": 102,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0
+    }
+  },
+  "mask_area_mean": 10786.626811594202,
+  "mask_area_std": 6575.721555316135,
+  "motion": {
+    "ball": {
+      "samples": 72,
+      "mean_speed_px_frame": 2.0565737783462965,
+      "max_speed_px_frame": 9.055507304363099,
+      "mean_speed_px_second": 61.666984436449454,
+      "max_speed_px_second": 271.5321151528768
+    }
+  }
+}

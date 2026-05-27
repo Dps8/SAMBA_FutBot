@@ -14,6 +14,7 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `video-597_singular_display.mov` | 641 | 2131 | 546 | 7 | `outputs/videos/video-597_singular_display-full-windowed-orange-v2-clipped-demo.mp4` |
 | `video-667_singular_display.mov` | 489 | 1821 | 126 | 2 | `outputs/videos/video-667_singular_display-full-windowed-orange-v2-clipped-demo.mp4` |
 | `video-848_singular_display.mov` | 489 | 1348 | 244 | 3 | `outputs/videos/video-848_singular_display-full-windowed-orange-v2-clipped-demo.mp4` |
+| `IMG_9866.MOV` | 102 | 276 | 74 | 2 | `outputs/videos/IMG_9866-top-camera-v1-demo.mp4` |
 
 ## Enriched Ball And Event Analysis
 
@@ -26,9 +27,18 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `video-667_singular_display.mov` | 25.8% | 311.1 | 966.9 | 9 |
 | `video-680_singular_display.mov` | 71.3% | 562.4 | 19092.0 | 17 |
 | `video-848_singular_display.mov` | 46.3% | 164.1 | 755.7 | 7 |
+| `IMG_9866.MOV` | 72.5% | 61.7 | 271.5 | 0 |
 
 `video-680` has an unrealistic max ball speed, which flags a likely ball-track
 jump. This is useful as an automatic QA signal for track fragmentation.
+
+## Top Camera Notes
+
+`IMG_9866.MOV` is a short high-angle camera clip. It validates that the current
+pipeline can process the camera-superior view and recover robots plus ball, but
+the field prompt needs a top-camera-specific refinement because the field class
+was not detected in this short clip. This view is the best candidate for the
+next professional visual layer: heatmaps, zones, possession maps and homography.
 
 ## Artifact Types
 
