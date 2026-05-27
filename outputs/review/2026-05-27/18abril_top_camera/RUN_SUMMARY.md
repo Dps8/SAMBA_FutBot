@@ -27,9 +27,9 @@ Source folder:
 
 | Rank | Clip | Status | Notes |
 |---|---|---|---|
-| 1 | `IMG_9933_f000000_10s-top-fusion-hsv-v1` | good | SAM3 field/robots plus HSV ball fallback; 300/300 in-play ball frames. |
-| 2 | `IMG_9933_f017990_10s-top-fusion-hsv-v1` | good | Recovers the orange ball that SAM3 text prompts missed; 300/300 in-play ball frames. |
-| 3 | `IMG_9938_f001799_10s-top-fusion-hsv-v1` | good | Recovers ball in 282/300 frames after robot-context filtering. |
+| 1 | `IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea` | good | SAM3 field/robots plus HSV ball fallback; 300/300 in-play ball frames, 1 ball track, no impossible jumps. |
+| 2 | `IMG_9933_f017990_10s-top-fusion-hsv-v3-minarea` | good | Recovers the orange ball that SAM3 text prompts missed; 300/300 in-play ball frames, 1 ball track. |
+| 3 | `IMG_9938_f001799_10s-top-fusion-hsv-v3-minarea` | good | Fixes the visible jump issue: max jump drops from ~1478 px/frame to 8.73 px/frame. |
 | 4 | `IMG_9933_f008995_10s-top-context-v1` | good | Pure SAM3 contextual prompt baseline; 124 in-play ball frames. |
 | 5 | `IMG_9938_f001799_10s-top-context-v2-edgefiltered` | needs_review | Useful QA case: edge filter removes 13 false ball detections and 5 false events. |
 | 6 | `IMG_9933_f017990_10s-top-context-v2` | needs_review | Field and robots are stable; SAM3 text prompts still miss the visible ball. |
@@ -38,15 +38,15 @@ Source folder:
 
 Demo:
 
-`outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f000000_10s-top-fusion-hsv-v1-demo.mp4`
+`outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea-demo.mp4`
 
 QA frame:
 
-`outputs/review/2026-05-27/18abril_top_camera/good/qa_frames/IMG_9933_f000000_10s-top-fusion-hsv-v1-demo-frame-000149.jpg`
+`outputs/review/2026-05-27/18abril_top_camera/good/qa_frames/IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea-demo-frame-000149.jpg`
 
 Metrics:
 
-`outputs/review/2026-05-27/18abril_top_camera/good/metrics/IMG_9933_f000000_10s-top-fusion-hsv-v1-metrics.json`
+`outputs/review/2026-05-27/18abril_top_camera/good/metrics/IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea-metrics.json`
 
 ## Competitive Notes
 
@@ -54,5 +54,5 @@ Metrics:
 - Ball trajectory and time-in-play are filtered by field geometry or robot possession, so orange objects outside play do not automatically become game time.
 - The prompt set now includes small bright orange ball, orange soccer ball and sideline/white-line context. This helped recover some hard cases, but QA still flags false positives near borders and hands.
 - ROI-aware ball filtering rejects ball boxes that touch the frame border, preventing false events from hand/edge artifacts.
-- The new `top-fusion-hsv-v1` path combines SAM3 for field/robots with an HSV color/shape fallback for the orange ball, then removes blobs inside robot boxes. This is the current differentiator versus a prompt-only SAM3 solution.
+- The `top-fusion-hsv-v3-minarea` path combines SAM3 for field/robots with an HSV color/shape fallback for the orange ball, removes blobs inside robot boxes, filters small orange distractors, and refines the ball with temporal dynamic programming. This is the current differentiator versus a prompt-only SAM3 solution.
 - Next improvement should add homography/zone coordinates from the top camera so the trajectories can be reported in field space instead of pixels.

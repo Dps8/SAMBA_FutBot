@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .ball_refinement import refine_ball_trajectory
 from .config import deep_get, load_config
 from .color_ball import detect_orange_ball
 from .drive import (
@@ -125,6 +126,16 @@ def build_parser() -> argparse.ArgumentParser:
     color_ball.add_argument("--border-margin-px", type=float, default=4.0)
     color_ball.add_argument("--max-per-frame", type=int, default=1)
     color_ball.set_defaults(func=cmd_detect_orange_ball)
+
+    refine_ball = sub.add_parser("refine-ball", help="Refinar trayectoria temporal de pelota.")
+    refine_ball.add_argument("--detections", required=True)
+    refine_ball.add_argument("--out", required=True)
+    refine_ball.add_argument("--max-jump-px", type=float, default=45.0)
+    refine_ball.add_argument("--preferred-area", type=float, default=650.0)
+    refine_ball.add_argument("--score-weight", type=float, default=2.0)
+    refine_ball.add_argument("--area-weight", type=float, default=1.0)
+    refine_ball.add_argument("--max-candidates-per-frame", type=int, default=6)
+    refine_ball.set_defaults(func=cmd_refine_ball)
 
     process = sub.add_parser("process-video", help="Pipeline completo: SAM3, merge, tracking, metricas y demo.")
     process.add_argument("--config", default="config/default.yml")
@@ -443,6 +454,33 @@ def cmd_detect_orange_ball(args: argparse.Namespace) -> None:
         max_per_frame=args.max_per_frame,
     )
     print(json.dumps({"out": args.out, "detections": len(detections)}, indent=2))
+
+
+def cmd_refine_ball(args: argparse.Namespace) -> None:
+    detections = read_detections(args.detections)
+    refined = refine_ball_trajectory(
+        detections,
+        max_jump_px=args.max_jump_px,
+        preferred_area=args.preferred_area,
+        score_weight=args.score_weight,
+        area_weight=args.area_weight,
+        max_candidates_per_frame=args.max_candidates_per_frame,
+    )
+    write_detections(args.out, refined)
+    ball_in = sum(1 for det in detections if det.class_name in {"ball", "balon", "soccer_ball"})
+    ball_out = sum(1 for det in refined if det.class_name in {"ball", "balon", "soccer_ball"})
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "input_detections": len(detections),
+                "detections": len(refined),
+                "input_ball_detections": ball_in,
+                "ball_detections": ball_out,
+            },
+            indent=2,
+        )
+    )
 
 
 def cmd_process_video(args: argparse.Namespace) -> None:

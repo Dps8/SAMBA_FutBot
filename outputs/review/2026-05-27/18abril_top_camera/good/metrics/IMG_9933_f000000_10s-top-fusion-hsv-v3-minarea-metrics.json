@@ -3,17 +3,17 @@
   "first_frame": 0,
   "last_frame": 299,
   "detections": 1316,
-  "tracks": 10,
-  "mean_track_length": 131.6,
-  "track_fragmentation_gaps": 23,
+  "tracks": 9,
+  "mean_track_length": 146.22222222222223,
+  "track_fragmentation_gaps": 22,
   "classes": {
     "ball": {
       "detections": 300,
-      "unique_tracks": 2,
-      "mean_score": 0.8594409122184647,
+      "unique_tracks": 1,
+      "mean_score": 0.859806623073605,
       "frames_with_detection": 300,
       "frame_coverage_ratio": 1.0,
-      "track_fragmentation_gaps": 1,
+      "track_fragmentation_gaps": 0,
       "in_play_detections": 300,
       "in_play_frames": 300,
       "in_play_coverage_ratio": 1.0,
@@ -36,22 +36,22 @@
       "track_fragmentation_gaps": 22
     }
   },
-  "mask_area_mean": 331608.47492401215,
-  "mask_area_std": 591768.0162322836,
+  "mask_area_mean": 331608.4741641337,
+  "mask_area_std": 591768.0166572734,
   "motion": {
     "ball": {
-      "samples": 298,
-      "mean_speed_px_frame": 1.6091299545381292,
+      "samples": 299,
+      "mean_speed_px_frame": 1.6080367023527942,
       "max_speed_px_frame": 6.800735254367722,
       "trajectory_scope": "in_play",
       "raw_candidates": {
-        "samples": 298,
-        "mean_speed_px_frame": 1.6091299545381292,
+        "samples": 299,
+        "mean_speed_px_frame": 1.6080367023527942,
         "max_speed_px_frame": 6.800735254367722,
-        "mean_speed_px_second": 48.25389476620256,
+        "mean_speed_px_second": 48.2211107913873,
         "max_speed_px_second": 203.9375144136551
       },
-      "mean_speed_px_second": 48.25389476620256,
+      "mean_speed_px_second": 48.2211107913873,
       "max_speed_px_second": 203.9375144136551
     }
   }

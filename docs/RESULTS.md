@@ -16,10 +16,10 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `video-848_singular_display.mov` | 489 | 1348 | 244 | 3 | `outputs/videos/video-848_singular_display-full-windowed-orange-v2-clipped-demo.mp4` |
 | `IMG_9866.MOV` | 102 | 276 | 74 | 2 | `outputs/videos/IMG_9866-top-camera-v1-demo.mp4` |
 | `IMG_9866.MOV` | 102 | 365 | 74 | 2 | `outputs/videos/IMG_9866-top-camera-orange-context-v2-demo.mp4` |
-| `IMG_9933_f000000_10s.mp4` | 300 | 1316 | 300 | 2 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f000000_10s-top-fusion-hsv-v1-demo.mp4` |
+| `IMG_9933_f000000_10s.mp4` | 300 | 1316 | 300 | 1 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea-demo.mp4` |
 | `IMG_9933_f008995_10s.mp4` | 300 | 931 | 124 | 1 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f008995_10s-top-context-v1-demo.mp4` |
-| `IMG_9933_f017990_10s.mp4` | 300 | 990 | 300 | 2 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f017990_10s-top-fusion-hsv-v1-demo.mp4` |
-| `IMG_9938_f001799_10s.mp4` | 300 | 906 | 282 | 7 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9938_f001799_10s-top-fusion-hsv-v1-demo.mp4` |
+| `IMG_9933_f017990_10s.mp4` | 300 | 990 | 300 | 1 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9933_f017990_10s-top-fusion-hsv-v3-minarea-demo.mp4` |
+| `IMG_9938_f001799_10s.mp4` | 300 | 842 | 218 | 3 | `outputs/review/2026-05-27/18abril_top_camera/good/videos/IMG_9938_f001799_10s-top-fusion-hsv-v3-minarea-demo.mp4` |
 
 ## Enriched Ball And Event Analysis
 
@@ -34,10 +34,10 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `video-848_singular_display.mov` | 46.3% | 164.1 | 755.7 | 7 |
 | `IMG_9866.MOV` | 72.5% | 61.7 | 271.5 | 0 |
 | `IMG_9866.MOV` contextual top-camera prompts | 59.8% in-play | 72.1 | 271.5 | 0 |
-| `IMG_9933_f000000_10s.mp4` top-fusion HSV | 100.0% in-play | 48.3 | 203.9 | 0 |
+| `IMG_9933_f000000_10s.mp4` top-fusion HSV v3 | 100.0% in-play | 48.2 | 203.9 | 0 |
 | `IMG_9933_f008995_10s.mp4` top-camera 18abril | 41.3% in-play | 11.9 | 33.5 | 0 |
-| `IMG_9933_f017990_10s.mp4` top-fusion HSV | 100.0% in-play | 4.5 | 240.4 | 0 |
-| `IMG_9938_f001799_10s.mp4` top-fusion HSV | 94.0% in-play | 26.9 | 261.9 | 1 |
+| `IMG_9933_f017990_10s.mp4` top-fusion HSV v3 | 100.0% in-play | 2.6 | 33.5 | 0 |
+| `IMG_9938_f001799_10s.mp4` top-fusion HSV v3 | 72.7% in-play | 31.5 | 261.9 | 1 |
 
 `video-680` has an unrealistic max ball speed, which flags a likely ball-track
 jump. This is useful as an automatic QA signal for track fragmentation.
@@ -56,11 +56,12 @@ For `18abril/Camara_superior`, long videos are first sampled into contact
 sheets and promoted to short clips before running SAM3. Current reviewed outputs
 are organized under `outputs/review/2026-05-27/18abril_top_camera/` with
 `good`, `latest` and `needs_review` folders. The strongest current clip is
-`IMG_9933_f000000_10s-top-fusion-hsv-v1`. The top-fusion path combines SAM3
+`IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea`. The top-fusion path combines SAM3
 field/robot detections with an HSV orange-ball fallback, removes orange blobs
-inside robot boxes, rejects edge-touching ball candidates and then computes
-in-play trajectories. This avoids relying only on text prompts when SAM3 misses
-the small orange ball from the overhead camera.
+inside robot boxes, rejects edge-touching and undersized ball candidates, refines
+the ball path with temporal dynamic programming and then computes in-play
+trajectories. This avoids relying only on text prompts when SAM3 misses the
+small orange ball from the overhead camera.
 
 ## Artifact Types
 
