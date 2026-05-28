@@ -72,7 +72,10 @@ Given four calibrated field corners, it converts in-play ball centroids from
 pixels to field meters, exports a trajectory CSV, reports speed in `m/s`,
 distance traveled, a zone-occupancy grid and a tactical PNG field map. This
 keeps the professional analysis grounded in field geometry instead of only
-screen-space pixels.
+screen-space pixels. The default field template now follows the official
+FutBotMX field dimensions, `2.43 m x 1.82 m`, with official center-circle,
+penalty-area and goal markings. Final metric claims still require replacing the
+template image points with calibrated corners from each real top-camera setup.
 
 ## Artifact Types
 

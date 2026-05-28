@@ -273,6 +273,17 @@ la posicion de la pelota de pixeles a metros, calcula velocidad en `m/s`,
 distancia recorrida, una grilla de ocupacion por zonas y un PNG tactico con
 trayectoria sobre la cancha.
 
+La plantilla usa las dimensiones oficiales del reglamento Copa FutBotMX 2026:
+
+- campo: `2.43 m x 1.82 m`;
+- circulo central: `0.60 m` de diametro;
+- area de penalizacion: `0.25 m x 0.80 m`;
+- porteria: `0.60 m` de ancho y `0.10 m` de profundidad.
+
+Las medidas metricas solo deben presentarse como finales cuando los
+`image_points` hayan sido ajustados a las cuatro esquinas reales del video
+analizado.
+
 Si ya existe un JSON de `field-analysis`, tambien puede renderizarse el mapa sin
 recalcular la trayectoria:
 

@@ -37,6 +37,9 @@ ejecutar un notebook.
      medio y ofensivo.
    - Mapa tactico: PNG con trayectoria y calor por zonas para explicar el
      comportamiento sin depender del video completo.
+   - Reglas oficiales: usar campo `2.43 m x 1.82 m`, circulo central de
+     `0.60 m`, area de penalizacion `0.25 m x 0.80 m` y porteria de `0.60 m`
+     para que las metricas sean defendibles.
    - Pase: cambio de poseedor dentro del mismo equipo.
    - Intercepcion: cambio de poseedor entre equipos.
    - Tiro: velocidad del balon hacia zona de gol.
