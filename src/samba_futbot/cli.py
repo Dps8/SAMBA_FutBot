@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from .ball_refinement import refine_ball_trajectory
+from .calibration import render_calibration_frame
 from .config import deep_get, load_config
 from .color_ball import detect_orange_ball
 from .drive import (
@@ -19,11 +20,13 @@ from .events import detect_events
 from .field_analysis import (
     analyze_field_tracks,
     load_field_calibration,
+    write_field_robot_csv,
     write_field_trajectory_csv,
 )
 from .field_viz import render_field_map
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
+from .reporting import write_run_report
 from .sam3_adapter import run_sam3_video
 from .tracking import track_detections
 from .video import extract_video_clip, sample_frames, video_info
@@ -169,9 +172,15 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--field-calibration", default=None)
     process.add_argument("--field-analysis-out", default=None)
     process.add_argument("--field-trajectory-csv", default=None)
+    process.add_argument("--field-robot-csv", default=None)
     process.add_argument("--field-map-out", default=None)
     process.add_argument("--field-grid-cols", type=int, default=6)
     process.add_argument("--field-grid-rows", type=int, default=4)
+    process.add_argument(
+        "--field-robot-anchor",
+        choices=["centroid", "bottom_center"],
+        default="bottom_center",
+    )
     process.add_argument("--trail-length", type=int, default=45)
     process.add_argument("--max-seconds", type=float, default=None)
     process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -212,9 +221,15 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--field-calibration", default=None)
     top_camera.add_argument("--field-analysis-out", default=None)
     top_camera.add_argument("--field-trajectory-csv", default=None)
+    top_camera.add_argument("--field-robot-csv", default=None)
     top_camera.add_argument("--field-map-out", default=None)
     top_camera.add_argument("--field-grid-cols", type=int, default=6)
     top_camera.add_argument("--field-grid-rows", type=int, default=4)
+    top_camera.add_argument(
+        "--field-robot-anchor",
+        choices=["centroid", "bottom_center"],
+        default="bottom_center",
+    )
     top_camera.add_argument("--trail-length", type=int, default=45)
     top_camera.add_argument("--max-seconds", type=float, default=None)
     top_camera.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -229,12 +244,18 @@ def build_parser() -> argparse.ArgumentParser:
     field_analysis.add_argument("--calibration", required=True)
     field_analysis.add_argument("--out", required=True)
     field_analysis.add_argument("--csv-out", default=None)
+    field_analysis.add_argument("--robot-csv-out", default=None)
     field_analysis.add_argument("--map-out", default=None)
     field_analysis.add_argument("--fps", type=float, default=None)
     field_analysis.add_argument("--possession-radius-px", type=float, default=90.0)
     field_analysis.add_argument("--in-play-field-margin-px", type=float, default=8.0)
     field_analysis.add_argument("--grid-cols", type=int, default=6)
     field_analysis.add_argument("--grid-rows", type=int, default=4)
+    field_analysis.add_argument(
+        "--robot-anchor",
+        choices=["centroid", "bottom_center"],
+        default="bottom_center",
+    )
     field_analysis.set_defaults(func=cmd_field_analysis)
 
     field_map = sub.add_parser(
@@ -245,6 +266,26 @@ def build_parser() -> argparse.ArgumentParser:
     field_map.add_argument("--out", required=True)
     field_map.add_argument("--width", type=int, default=1200)
     field_map.set_defaults(func=cmd_render_field_map)
+
+    calibration_frame = sub.add_parser(
+        "render-calibration-frame",
+        help="Extraer un frame con guias para calibrar esquinas del campo.",
+    )
+    calibration_frame.add_argument("--video", required=True)
+    calibration_frame.add_argument("--out", required=True)
+    calibration_frame.add_argument("--frame-index", type=int, default=0)
+    calibration_frame.add_argument("--calibration", default=None)
+    calibration_frame.set_defaults(func=cmd_render_calibration_frame)
+
+    report = sub.add_parser("summarize-run", help="Crear resumen Markdown de una corrida.")
+    report.add_argument("--out", required=True)
+    report.add_argument("--title", default="SAMBA FutBot Run")
+    report.add_argument("--metrics", default=None)
+    report.add_argument("--events", default=None)
+    report.add_argument("--field-analysis", default=None)
+    report.add_argument("--demo", default=None)
+    report.add_argument("--field-map", default=None)
+    report.set_defaults(func=cmd_summarize_run)
 
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
@@ -677,6 +718,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     field_analysis_result = None
     field_analysis_out = None
     field_trajectory_csv = None
+    field_robot_csv = None
     field_map_out = None
     if args.field_calibration:
         field_analysis_out = Path(
@@ -686,6 +728,10 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         field_trajectory_csv = Path(
             args.field_trajectory_csv
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-trajectory.csv"
+        )
+        field_robot_csv = Path(
+            args.field_robot_csv
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-robots.csv"
         )
         field_map_out = Path(
             args.field_map_out
@@ -699,9 +745,11 @@ def cmd_process_video(args: argparse.Namespace) -> None:
             field_margin_px=field_margin_px,
             grid_cols=args.field_grid_cols,
             grid_rows=args.field_grid_rows,
+            robot_anchor=args.field_robot_anchor,
         )
         write_json(field_analysis_out, field_analysis_result)
         write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
+        write_field_robot_csv(field_robot_csv, field_analysis_result)
         render_field_map(field_analysis_result, field_map_out)
 
     rendered = None
@@ -736,6 +784,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "field_trajectory_csv": (
                         str(field_trajectory_csv) if field_trajectory_csv else None
                     ),
+                    "field_robot_csv": str(field_robot_csv) if field_robot_csv else None,
                     "field_map": str(field_map_out) if field_map_out else None,
                     "demo": str(rendered) if rendered else None,
                 },
@@ -866,6 +915,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     field_analysis_result = None
     field_analysis_out = None
     field_trajectory_csv = None
+    field_robot_csv = None
     field_map_out = None
     if args.field_calibration:
         field_analysis_out = Path(
@@ -875,6 +925,10 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         field_trajectory_csv = Path(
             args.field_trajectory_csv
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-trajectory.csv"
+        )
+        field_robot_csv = Path(
+            args.field_robot_csv
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-robots.csv"
         )
         field_map_out = Path(
             args.field_map_out
@@ -888,9 +942,11 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             field_margin_px=field_margin_px,
             grid_cols=args.field_grid_cols,
             grid_rows=args.field_grid_rows,
+            robot_anchor=args.field_robot_anchor,
         )
         write_json(field_analysis_out, field_analysis_result)
         write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
+        write_field_robot_csv(field_robot_csv, field_analysis_result)
         render_field_map(field_analysis_result, field_map_out)
 
     rendered = None
@@ -931,6 +987,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     "field_trajectory_csv": (
                         str(field_trajectory_csv) if field_trajectory_csv else None
                     ),
+                    "field_robot_csv": str(field_robot_csv) if field_robot_csv else None,
                     "field_map": str(field_map_out) if field_map_out else None,
                     "demo": str(rendered) if rendered else None,
                 },
@@ -1004,10 +1061,13 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
         field_margin_px=args.in_play_field_margin_px,
         grid_cols=args.grid_cols,
         grid_rows=args.grid_rows,
+        robot_anchor=args.robot_anchor,
     )
     write_json(args.out, analysis)
     if args.csv_out:
         write_field_trajectory_csv(args.csv_out, analysis)
+    if args.robot_csv_out:
+        write_field_robot_csv(args.robot_csv_out, analysis)
     if args.map_out:
         render_field_map(analysis, args.map_out)
     print(
@@ -1015,8 +1075,10 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
             {
                 "out": args.out,
                 "csv_out": args.csv_out,
+                "robot_csv_out": args.robot_csv_out,
                 "map_out": args.map_out,
                 "summary": analysis["summary"],
+                "robot_summary": analysis["robot_summary"],
             },
             ensure_ascii=False,
             indent=2,
@@ -1027,6 +1089,30 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
 def cmd_render_field_map(args: argparse.Namespace) -> None:
     out = render_field_map(read_json(args.analysis), args.out, width=args.width)
     print(json.dumps({"map": str(out)}, indent=2))
+
+
+def cmd_render_calibration_frame(args: argparse.Namespace) -> None:
+    calibration = load_field_calibration(args.calibration) if args.calibration else None
+    out = render_calibration_frame(
+        args.video,
+        args.out,
+        frame_index=args.frame_index,
+        calibration=calibration,
+    )
+    print(json.dumps({"calibration_frame": str(out)}, indent=2))
+
+
+def cmd_summarize_run(args: argparse.Namespace) -> None:
+    out = write_run_report(
+        args.out,
+        title=args.title,
+        metrics_path=args.metrics,
+        events_path=args.events,
+        field_analysis_path=args.field_analysis,
+        demo_path=args.demo,
+        field_map_path=args.field_map,
+    )
+    print(json.dumps({"report": str(out)}, indent=2))
 
 
 def cmd_track(args: argparse.Namespace) -> None:

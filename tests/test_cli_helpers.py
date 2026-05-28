@@ -28,8 +28,12 @@ class CliHelpersTest(unittest.TestCase):
                 "calibration.yml",
                 "--out",
                 "analysis.json",
+                "--robot-csv-out",
+                "robots.csv",
                 "--map-out",
                 "field-map.png",
+                "--robot-anchor",
+                "centroid",
                 "--grid-cols",
                 "8",
                 "--grid-rows",
@@ -40,6 +44,8 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.grid_cols, 8)
         self.assertEqual(args.grid_rows, 5)
         self.assertEqual(args.map_out, "field-map.png")
+        self.assertEqual(args.robot_csv_out, "robots.csv")
+        self.assertEqual(args.robot_anchor, "centroid")
 
     def test_render_field_map_command_parses_width(self):
         args = build_parser().parse_args(
@@ -55,6 +61,39 @@ class CliHelpersTest(unittest.TestCase):
         )
 
         self.assertEqual(args.width, 900)
+
+    def test_render_calibration_frame_command_parses_frame_index(self):
+        args = build_parser().parse_args(
+            [
+                "render-calibration-frame",
+                "--video",
+                "clip.mp4",
+                "--out",
+                "calibration.jpg",
+                "--frame-index",
+                "120",
+            ]
+        )
+
+        self.assertEqual(args.frame_index, 120)
+
+    def test_summarize_run_command_parses_optional_artifacts(self):
+        args = build_parser().parse_args(
+            [
+                "summarize-run",
+                "--out",
+                "report.md",
+                "--metrics",
+                "metrics.json",
+                "--events",
+                "events.json",
+                "--field-analysis",
+                "field.json",
+            ]
+        )
+
+        self.assertEqual(args.metrics, "metrics.json")
+        self.assertEqual(args.field_analysis, "field.json")
 
 
 if __name__ == "__main__":
