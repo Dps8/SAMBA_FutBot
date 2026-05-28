@@ -9,6 +9,7 @@ from samba_futbot.field_analysis import (
     analyze_field_tracks,
     load_field_calibration,
     write_field_trajectory_csv,
+    write_field_robot_csv,
 )
 from samba_futbot.field_viz import render_field_map
 from samba_futbot.types import Detection
@@ -65,6 +66,30 @@ class FieldAnalysisTest(unittest.TestCase):
         self.assertEqual(analysis["grid"]["sample_counts"][1][1], 1)
         self.assertEqual(analysis["grid"]["sample_counts"][1][3], 1)
 
+    def test_analyze_field_tracks_reports_robot_penalty_samples(self):
+        calibration = FieldCalibration.from_mapping(
+            {
+                "field": {
+                    "length_m": 2.43,
+                    "width_m": 1.82,
+                    "penalty_area_depth_m": 0.25,
+                    "penalty_area_width_m": 0.80,
+                },
+                "image_points": [[0, 0], [243, 0], [243, 182], [0, 182]],
+            }
+        )
+        detections = [
+            Detection(0, "field", 1.0, (0, 0, 243, 182)),
+            Detection(0, "robots", 1.0, (5, 80, 15, 90), track_id=7),
+            Detection(0, "ball", 1.0, (120, 90, 124, 94), track_id=1),
+        ]
+
+        analysis = analyze_field_tracks(detections, calibration, fps=10)
+
+        self.assertEqual(analysis["robot_summary"]["path_samples"], 1)
+        self.assertEqual(analysis["robot_summary"]["penalty_area_samples"], 1)
+        self.assertEqual(analysis["robot_path"][0]["penalty_side"], "left")
+
     def test_load_calibration_and_write_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -96,9 +121,13 @@ class FieldAnalysisTest(unittest.TestCase):
             )
             csv_path = tmp_path / "trajectory.csv"
             write_field_trajectory_csv(csv_path, analysis)
+            robot_csv_path = tmp_path / "robots.csv"
+            write_field_robot_csv(robot_csv_path, analysis)
             csv_text = csv_path.read_text(encoding="utf-8")
+            robot_csv_text = robot_csv_path.read_text(encoding="utf-8")
 
         self.assertIn("field_x_m", csv_text)
+        self.assertIn("penalty_side", robot_csv_text)
 
     def test_render_field_map_writes_nonblank_png(self):
         calibration = FieldCalibration.from_mapping(

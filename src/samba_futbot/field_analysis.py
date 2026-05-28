@@ -12,7 +12,7 @@ import numpy as np
 
 from .config import load_config
 from .io_utils import ensure_parent
-from .play_state import in_play_balls
+from .play_state import BALL_CLASSES, ROBOT_CLASSES, in_play_balls
 from .types import Detection, Point
 
 
@@ -103,6 +103,46 @@ class FieldCalibration:
             "inside_field": 0.0 <= x <= self.field_length_m and 0.0 <= y <= self.field_width_m,
         }
 
+    def neutral_points(self) -> list[Point]:
+        half = self.field_length_m / 2
+        offset = 0.45
+        return [
+            (half, offset),
+            (half, self.field_width_m - offset),
+        ]
+
+    def penalty_areas(self) -> dict[str, tuple[float, float, float, float]]:
+        y1 = (self.field_width_m - self.penalty_area_width_m) / 2
+        y2 = y1 + self.penalty_area_width_m
+        return {
+            "left": (0.0, y1, self.penalty_area_depth_m, y2),
+            "right": (
+                self.field_length_m - self.penalty_area_depth_m,
+                y1,
+                self.field_length_m,
+                y2,
+            ),
+        }
+
+    def goal_mouths(self) -> dict[str, tuple[float, float, float, float]]:
+        y1 = (self.field_width_m - self.goal_width_m) / 2
+        y2 = y1 + self.goal_width_m
+        return {
+            "left": (-self.goal_depth_m, y1, 0.0, y2),
+            "right": (self.field_length_m, y1, self.field_length_m + self.goal_depth_m, y2),
+        }
+
+    def rule_geometry(self) -> dict:
+        return {
+            "neutral_points": [list(point) for point in self.neutral_points()],
+            "penalty_areas": {
+                name: list(box) for name, box in self.penalty_areas().items()
+            },
+            "goal_mouths": {
+                name: list(box) for name, box in self.goal_mouths().items()
+            },
+        }
+
     def to_record(self) -> dict:
         return {
             "field": {
@@ -114,6 +154,7 @@ class FieldCalibration:
                 "goal_width_m": self.goal_width_m,
                 "goal_depth_m": self.goal_depth_m,
             },
+            "rule_geometry": self.rule_geometry(),
             "image_points": [list(point) for point in self.image_points],
             "field_points": [list(point) for point in self.field_points],
         }
@@ -135,16 +176,25 @@ def analyze_field_tracks(
     field_margin_px: float = 8.0,
     grid_cols: int = 6,
     grid_rows: int = 4,
+    robot_anchor: str = "bottom_center",
 ) -> dict:
     if grid_cols <= 0 or grid_rows <= 0:
         raise ValueError("grid_cols and grid_rows must be positive.")
 
+    detections_list = list(detections)
     balls = in_play_balls(
-        detections,
+        detections_list,
         possession_radius_px=possession_radius_px,
         field_margin_px=field_margin_px,
     )
     path = _field_path_records(balls, calibration, grid_cols=grid_cols, grid_rows=grid_rows)
+    robot_path = _robot_path_records(
+        detections_list,
+        calibration,
+        grid_cols=grid_cols,
+        grid_rows=grid_rows,
+        anchor=robot_anchor,
+    )
     speeds_m_s = _field_speeds(path, fps=fps)
     distance_m = _field_distance(path)
     zone_counts = Counter(record["zone"] for record in path)
@@ -168,7 +218,16 @@ def analyze_field_tracks(
             "speed_samples": len(speeds_m_s),
             "mean_speed_m_s": mean(speeds_m_s) if speeds_m_s else 0.0,
             "max_speed_m_s": max(speeds_m_s) if speeds_m_s else 0.0,
+            "goal_zone_entries": _count_goal_zone_entries(path, calibration),
+            "ball_out_of_bounds_samples": sum(
+                1 for record in path if not record["inside_field"]
+            ),
+            "robot_penalty_area_samples": _count_robot_penalty_samples(
+                robot_path,
+                calibration,
+            ),
         },
+        "robot_summary": _robot_summary(robot_path, calibration),
         "zones": [
             {
                 "zone": zone,
@@ -178,6 +237,7 @@ def analyze_field_tracks(
             for zone, count in sorted(zone_counts.items())
         ],
         "path": path,
+        "robot_path": robot_path,
     }
 
 
@@ -200,6 +260,32 @@ def write_field_trajectory_csv(path: str | Path, analysis: dict) -> None:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
         for record in analysis.get("path", []):
+            writer.writerow({field: record.get(field) for field in fields})
+
+
+def write_field_robot_csv(path: str | Path, analysis: dict) -> None:
+    output = ensure_parent(path)
+    fields = [
+        "frame_index",
+        "track_id",
+        "class_name",
+        "team",
+        "image_x",
+        "image_y",
+        "field_x_m",
+        "field_y_m",
+        "row",
+        "col",
+        "zone",
+        "zone_label",
+        "inside_field",
+        "in_penalty_area",
+        "penalty_side",
+    ]
+    with output.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        for record in analysis.get("robot_path", []):
             writer.writerow({field: record.get(field) for field in fields})
 
 
@@ -230,6 +316,109 @@ def _field_path_records(
             }
         )
     return records
+
+
+def _robot_path_records(
+    detections: Iterable[Detection],
+    calibration: FieldCalibration,
+    *,
+    grid_cols: int,
+    grid_rows: int,
+    anchor: str,
+) -> list[dict]:
+    if anchor not in {"centroid", "bottom_center"}:
+        raise ValueError("robot_anchor must be 'centroid' or 'bottom_center'.")
+    records: list[dict] = []
+    for robot in sorted(
+        (det for det in detections if det.class_name in ROBOT_CLASSES),
+        key=lambda det: (det.frame_index, det.track_id or -1, det.score),
+    ):
+        image_point = _robot_anchor_point(robot, anchor)
+        field_point = calibration.transform_point(image_point)
+        zone = calibration.zone_for_point(field_point, grid_cols=grid_cols, grid_rows=grid_rows)
+        penalty_side = _penalty_side(field_point, calibration)
+        records.append(
+            {
+                "frame_index": robot.frame_index,
+                "track_id": robot.track_id,
+                "class_name": robot.class_name,
+                "team": robot.team,
+                "image_x": image_point[0],
+                "image_y": image_point[1],
+                "field_x_m": field_point[0],
+                "field_y_m": field_point[1],
+                "row": zone["row"],
+                "col": zone["col"],
+                "zone": zone["zone"],
+                "zone_label": zone["label"],
+                "inside_field": zone["inside_field"],
+                "in_penalty_area": penalty_side is not None,
+                "penalty_side": penalty_side,
+            }
+        )
+    return records
+
+
+def _robot_anchor_point(robot: Detection, anchor: str) -> Point:
+    if anchor == "centroid":
+        return robot.centroid
+    x1, _, x2, y2 = robot.box
+    return ((x1 + x2) / 2.0, y2)
+
+
+def _penalty_side(point: Point, calibration: FieldCalibration) -> str | None:
+    for side, box in calibration.penalty_areas().items():
+        if _point_in_field_box(point, box):
+            return side
+    return None
+
+
+def _point_in_field_box(point: Point, box: tuple[float, float, float, float]) -> bool:
+    x, y = point
+    x1, y1, x2, y2 = box
+    return x1 <= x <= x2 and y1 <= y <= y2
+
+
+def _count_goal_zone_entries(path: list[dict], calibration: FieldCalibration) -> int:
+    entries = 0
+    prev_side_by_track: dict[int | None, str | None] = {}
+    for record in sorted(path, key=lambda item: (item["track_id"] or -1, item["frame_index"])):
+        point = (record["field_x_m"], record["field_y_m"])
+        side = _goal_side(point, calibration)
+        key = record["track_id"]
+        if side and prev_side_by_track.get(key) != side:
+            entries += 1
+        prev_side_by_track[key] = side
+    return entries
+
+
+def _goal_side(point: Point, calibration: FieldCalibration) -> str | None:
+    for side, box in calibration.goal_mouths().items():
+        if _point_in_field_box(point, box):
+            return side
+    return None
+
+
+def _count_robot_penalty_samples(
+    robot_path: list[dict],
+    calibration: FieldCalibration,
+) -> int:
+    return sum(
+        1
+        for record in robot_path
+        if _penalty_side((record["field_x_m"], record["field_y_m"]), calibration)
+    )
+
+
+def _robot_summary(robot_path: list[dict], calibration: FieldCalibration) -> dict:
+    by_side = Counter(record["penalty_side"] for record in robot_path if record["penalty_side"])
+    return {
+        "path_samples": len(robot_path),
+        "inside_field_samples": sum(1 for record in robot_path if record["inside_field"]),
+        "penalty_area_samples": sum(by_side.values()),
+        "penalty_area_samples_by_side": dict(sorted(by_side.items())),
+        "neutral_points": [list(point) for point in calibration.neutral_points()],
+    }
 
 
 def _field_speeds(path: list[dict], *, fps: float | None) -> list[float]:
