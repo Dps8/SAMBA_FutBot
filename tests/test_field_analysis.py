@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 
 from samba_futbot.field_analysis import (
+    DEFAULT_FIELD_LENGTH_M,
+    DEFAULT_FIELD_WIDTH_M,
     FieldCalibration,
     analyze_field_tracks,
     load_field_calibration,
@@ -13,6 +15,21 @@ from samba_futbot.types import Detection
 
 
 class FieldAnalysisTest(unittest.TestCase):
+    def test_default_field_dimensions_follow_futbotmx_rules(self):
+        calibration = FieldCalibration.from_mapping(
+            {
+                "image_points": [[0, 0], [243, 0], [243, 182], [0, 182]],
+            }
+        )
+
+        self.assertEqual(DEFAULT_FIELD_LENGTH_M, 2.43)
+        self.assertEqual(DEFAULT_FIELD_WIDTH_M, 1.82)
+        self.assertEqual(calibration.field_points[2], (2.43, 1.82))
+        self.assertEqual(calibration.center_circle_diameter_m, 0.60)
+        self.assertEqual(calibration.penalty_area_depth_m, 0.25)
+        self.assertEqual(calibration.penalty_area_width_m, 0.80)
+        self.assertEqual(calibration.goal_width_m, 0.60)
+
     def test_calibration_projects_image_rectangle_to_field(self):
         calibration = FieldCalibration.from_mapping(
             {
@@ -86,7 +103,15 @@ class FieldAnalysisTest(unittest.TestCase):
     def test_render_field_map_writes_nonblank_png(self):
         calibration = FieldCalibration.from_mapping(
             {
-                "field": {"length_m": 2.0, "width_m": 1.0},
+                "field": {
+                    "length_m": 2.0,
+                    "width_m": 1.0,
+                    "center_circle_diameter_m": 0.50,
+                    "penalty_area_depth_m": 0.20,
+                    "penalty_area_width_m": 0.60,
+                    "goal_width_m": 0.50,
+                    "goal_depth_m": 0.10,
+                },
                 "image_points": [[0, 0], [100, 0], [100, 50], [0, 50]],
             }
         )

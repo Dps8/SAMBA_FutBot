@@ -7,6 +7,15 @@ from PIL import Image, ImageDraw, ImageFont
 from .io_utils import ensure_parent
 
 
+DEFAULT_FIELD_LENGTH_M = 2.43
+DEFAULT_FIELD_WIDTH_M = 1.82
+DEFAULT_CENTER_CIRCLE_DIAMETER_M = 0.60
+DEFAULT_PENALTY_AREA_DEPTH_M = 0.25
+DEFAULT_PENALTY_AREA_WIDTH_M = 0.80
+DEFAULT_GOAL_WIDTH_M = 0.60
+DEFAULT_GOAL_DEPTH_M = 0.10
+
+
 def render_field_map(
     analysis: dict,
     out_path: str | Path,
@@ -16,8 +25,8 @@ def render_field_map(
 ) -> Path:
     calibration = analysis.get("calibration", {})
     field = calibration.get("field", {})
-    field_length = float(field.get("length_m", 1.82))
-    field_width = float(field.get("width_m", 1.22))
+    field_length = float(field.get("length_m", DEFAULT_FIELD_LENGTH_M))
+    field_width = float(field.get("width_m", DEFAULT_FIELD_WIDTH_M))
     if field_length <= 0 or field_width <= 0:
         raise ValueError("Field dimensions must be positive.")
 
@@ -31,7 +40,7 @@ def render_field_map(
     font = ImageFont.load_default()
 
     field_box = (margin, margin, margin + field_px_width, margin + field_px_height)
-    _draw_field(draw, field_box, font)
+    _draw_field(draw, field_box, field, font)
     _draw_heatmap(draw, analysis, field_box)
     _draw_trajectory(draw, analysis, field_box, field_length, field_width)
     _draw_summary(draw, analysis, field_box, font)
@@ -41,8 +50,15 @@ def render_field_map(
     return output
 
 
-def _draw_field(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], font) -> None:
+def _draw_field(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    field: dict,
+    font,
+) -> None:
     x1, y1, x2, y2 = box
+    field_length = float(field.get("length_m", DEFAULT_FIELD_LENGTH_M))
+    field_width = float(field.get("width_m", DEFAULT_FIELD_WIDTH_M))
     draw.rounded_rectangle(
         box,
         radius=12,
@@ -50,9 +66,14 @@ def _draw_field(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], font)
         outline=(245, 245, 245, 255),
         width=4,
     )
-    draw.line((x1 + (x2 - x1) / 2, y1, x1 + (x2 - x1) / 2, y2), fill=(245, 245, 245, 220), width=3)
-    center = ((x1 + x2) / 2, (y1 + y2) / 2)
-    radius = min(x2 - x1, y2 - y1) * 0.12
+    center = _to_canvas((field_length / 2, field_width / 2), box, field_length, field_width)
+    draw.line((center[0], y1, center[0], y2), fill=(245, 245, 245, 220), width=3)
+    radius = (
+        float(field.get("center_circle_diameter_m", DEFAULT_CENTER_CIRCLE_DIAMETER_M))
+        / 2
+        / field_width
+        * (y2 - y1)
+    )
     draw.ellipse(
         (
             center[0] - radius,
@@ -63,10 +84,38 @@ def _draw_field(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], font)
         outline=(245, 245, 245, 200),
         width=3,
     )
-    goal_w = (y2 - y1) * 0.32
-    for gx in (x1, x2):
+    penalty_depth = float(field.get("penalty_area_depth_m", DEFAULT_PENALTY_AREA_DEPTH_M))
+    penalty_width = float(field.get("penalty_area_width_m", DEFAULT_PENALTY_AREA_WIDTH_M))
+    goal_width = float(field.get("goal_width_m", DEFAULT_GOAL_WIDTH_M))
+    goal_depth = float(field.get("goal_depth_m", DEFAULT_GOAL_DEPTH_M))
+    penalty_y1 = y1 + (field_width - penalty_width) / 2 / field_width * (y2 - y1)
+    penalty_y2 = y1 + (field_width + penalty_width) / 2 / field_width * (y2 - y1)
+    left_penalty_x = x1 + penalty_depth / field_length * (x2 - x1)
+    right_penalty_x = x2 - penalty_depth / field_length * (x2 - x1)
+    draw.rectangle(
+        (x1, penalty_y1, left_penalty_x, penalty_y2),
+        outline=(245, 245, 245, 180),
+        width=2,
+    )
+    draw.rectangle(
+        (right_penalty_x, penalty_y1, x2, penalty_y2),
+        outline=(245, 245, 245, 180),
+        width=2,
+    )
+
+    goal_y1 = y1 + (field_width - goal_width) / 2 / field_width * (y2 - y1)
+    goal_y2 = y1 + (field_width + goal_width) / 2 / field_width * (y2 - y1)
+    goal_px_depth = max(4.0, goal_depth / field_length * (x2 - x1))
+    for gx, fill in ((x1, (255, 218, 65, 230)), (x2, (0, 160, 220, 230))):
+        goal_box = (
+            gx - goal_px_depth if gx == x1 else gx,
+            goal_y1,
+            gx if gx == x1 else gx + goal_px_depth,
+            goal_y2,
+        )
+        draw.rectangle(goal_box, fill=fill, outline=(245, 245, 245, 220), width=2)
         draw.line(
-            (gx, center[1] - goal_w / 2, gx, center[1] + goal_w / 2),
+            (gx, goal_y1, gx, goal_y2),
             fill=(255, 235, 120, 255),
             width=6,
         )
@@ -169,6 +218,16 @@ def _project_record(
     x1, y1, x2, y2 = box
     field_x = float(record.get("field_x_m", 0.0))
     field_y = float(record.get("field_y_m", 0.0))
-    px = x1 + (field_x / field_length) * (x2 - x1)
-    py = y1 + (field_y / field_width) * (y2 - y1)
+    return _to_canvas((field_x, field_y), box, field_length, field_width)
+
+
+def _to_canvas(
+    point: tuple[float, float],
+    box: tuple[int, int, int, int],
+    field_length: float,
+    field_width: float,
+) -> tuple[float, float]:
+    x1, y1, x2, y2 = box
+    px = x1 + (point[0] / field_length) * (x2 - x1)
+    py = y1 + (point[1] / field_width) * (y2 - y1)
     return (px, py)

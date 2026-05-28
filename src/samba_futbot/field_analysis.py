@@ -16,8 +16,13 @@ from .play_state import in_play_balls
 from .types import Detection, Point
 
 
-DEFAULT_FIELD_LENGTH_M = 1.82
-DEFAULT_FIELD_WIDTH_M = 1.22
+DEFAULT_FIELD_LENGTH_M = 2.43
+DEFAULT_FIELD_WIDTH_M = 1.82
+DEFAULT_CENTER_CIRCLE_DIAMETER_M = 0.60
+DEFAULT_PENALTY_AREA_DEPTH_M = 0.25
+DEFAULT_PENALTY_AREA_WIDTH_M = 0.80
+DEFAULT_GOAL_WIDTH_M = 0.60
+DEFAULT_GOAL_DEPTH_M = 0.10
 
 
 @dataclass(slots=True)
@@ -26,12 +31,28 @@ class FieldCalibration:
     field_points: list[Point]
     field_length_m: float = DEFAULT_FIELD_LENGTH_M
     field_width_m: float = DEFAULT_FIELD_WIDTH_M
+    center_circle_diameter_m: float = DEFAULT_CENTER_CIRCLE_DIAMETER_M
+    penalty_area_depth_m: float = DEFAULT_PENALTY_AREA_DEPTH_M
+    penalty_area_width_m: float = DEFAULT_PENALTY_AREA_WIDTH_M
+    goal_width_m: float = DEFAULT_GOAL_WIDTH_M
+    goal_depth_m: float = DEFAULT_GOAL_DEPTH_M
 
     @classmethod
     def from_mapping(cls, data: dict) -> "FieldCalibration":
         field = data.get("field", {})
         length_m = float(field.get("length_m", data.get("field_length_m", DEFAULT_FIELD_LENGTH_M)))
         width_m = float(field.get("width_m", data.get("field_width_m", DEFAULT_FIELD_WIDTH_M)))
+        center_circle_diameter_m = float(
+            field.get("center_circle_diameter_m", DEFAULT_CENTER_CIRCLE_DIAMETER_M)
+        )
+        penalty_area_depth_m = float(
+            field.get("penalty_area_depth_m", DEFAULT_PENALTY_AREA_DEPTH_M)
+        )
+        penalty_area_width_m = float(
+            field.get("penalty_area_width_m", DEFAULT_PENALTY_AREA_WIDTH_M)
+        )
+        goal_width_m = float(field.get("goal_width_m", DEFAULT_GOAL_WIDTH_M))
+        goal_depth_m = float(field.get("goal_depth_m", DEFAULT_GOAL_DEPTH_M))
         image_points = _parse_points(data.get("image_points"), name="image_points")
         field_points = _parse_points(
             data.get("field_points"),
@@ -52,6 +73,11 @@ class FieldCalibration:
             field_points=field_points,
             field_length_m=length_m,
             field_width_m=width_m,
+            center_circle_diameter_m=center_circle_diameter_m,
+            penalty_area_depth_m=penalty_area_depth_m,
+            penalty_area_width_m=penalty_area_width_m,
+            goal_width_m=goal_width_m,
+            goal_depth_m=goal_depth_m,
         )
 
     @property
@@ -82,6 +108,11 @@ class FieldCalibration:
             "field": {
                 "length_m": self.field_length_m,
                 "width_m": self.field_width_m,
+                "center_circle_diameter_m": self.center_circle_diameter_m,
+                "penalty_area_depth_m": self.penalty_area_depth_m,
+                "penalty_area_width_m": self.penalty_area_width_m,
+                "goal_width_m": self.goal_width_m,
+                "goal_depth_m": self.goal_depth_m,
             },
             "image_points": [list(point) for point in self.image_points],
             "field_points": [list(point) for point in self.field_points],
