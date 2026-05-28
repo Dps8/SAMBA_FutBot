@@ -28,7 +28,7 @@ Para la categoria profesional, la innovacion propuesta combina:
 - **Uso de VRAM conservador:** el video y el estado se descargan a CPU por
   defecto para poder correr SAM 3.1 en GPUs de 16 GB.
 - **Prompts desde frame especifico:** `--prompt-frame-index` permite lanzar una
-  pasada desde un frame donde objetos pequenos, como el balon, sean visibles.
+  pasada desde un frame donde objetos pequeños, como el balon, sean visibles.
 - **Analisis deportivo:** homografia opcional a coordenadas de cancha, posesion,
   eventos y metricas operativas de continuidad de tracking.
 
