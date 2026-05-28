@@ -8,6 +8,7 @@ from samba_futbot.field_analysis import (
     load_field_calibration,
     write_field_trajectory_csv,
 )
+from samba_futbot.field_viz import render_field_map
 from samba_futbot.types import Detection
 
 
@@ -81,6 +82,29 @@ class FieldAnalysisTest(unittest.TestCase):
             csv_text = csv_path.read_text(encoding="utf-8")
 
         self.assertIn("field_x_m", csv_text)
+
+    def test_render_field_map_writes_nonblank_png(self):
+        calibration = FieldCalibration.from_mapping(
+            {
+                "field": {"length_m": 2.0, "width_m": 1.0},
+                "image_points": [[0, 0], [100, 0], [100, 50], [0, 50]],
+            }
+        )
+        analysis = analyze_field_tracks(
+            [
+                Detection(0, "field", 1.0, (0, 0, 100, 50)),
+                Detection(10, "field", 1.0, (0, 0, 100, 50)),
+                Detection(0, "ball", 1.0, (20, 20, 30, 30), track_id=1),
+                Detection(10, "ball", 1.0, (70, 20, 80, 30), track_id=1),
+            ],
+            calibration,
+            fps=10,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out = render_field_map(analysis, Path(tmp) / "field-map.png", width=500)
+
+            self.assertTrue(out.exists())
+            self.assertGreater(out.stat().st_size, 1000)
 
 
 if __name__ == "__main__":
