@@ -18,6 +18,26 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.orange_max_per_frame, 6)
         self.assertEqual(args.refine_max_jump_px, 35.0)
 
+    def test_field_analysis_command_parses_grid_options(self):
+        args = build_parser().parse_args(
+            [
+                "field-analysis",
+                "--tracks",
+                "tracks.jsonl",
+                "--calibration",
+                "calibration.yml",
+                "--out",
+                "analysis.json",
+                "--grid-cols",
+                "8",
+                "--grid-rows",
+                "5",
+            ]
+        )
+
+        self.assertEqual(args.grid_cols, 8)
+        self.assertEqual(args.grid_rows, 5)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,19 @@
+# Copy this file and replace image_points with four clicked field corners.
+# Point order: top_left, top_right, bottom_right, bottom_left in the image.
+# Field coordinates are in meters, with x along the long field axis.
+
+field:
+  length_m: 1.82
+  width_m: 1.22
+
+image_points:
+  top_left: [120, 180]
+  top_right: [960, 170]
+  bottom_right: [1010, 1720]
+  bottom_left: [80, 1710]
+
+field_points:
+  top_left: [0.0, 0.0]
+  top_right: [1.82, 0.0]
+  bottom_right: [1.82, 1.22]
+  bottom_left: [0.0, 1.22]

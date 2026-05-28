@@ -16,6 +16,11 @@ from .drive import (
     write_manifest,
 )
 from .events import detect_events
+from .field_analysis import (
+    analyze_field_tracks,
+    load_field_calibration,
+    write_field_trajectory_csv,
+)
 from .io_utils import read_detections, write_detections, write_events, write_json
 from .metrics import summarize_tracks
 from .sam3_adapter import run_sam3_video
@@ -160,6 +165,11 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--goal-x-margin-ratio", type=float, default=None)
     process.add_argument("--in-play-field-margin-px", type=float, default=None)
     process.add_argument("--ball-border-margin-px", type=float, default=None)
+    process.add_argument("--field-calibration", default=None)
+    process.add_argument("--field-analysis-out", default=None)
+    process.add_argument("--field-trajectory-csv", default=None)
+    process.add_argument("--field-grid-cols", type=int, default=6)
+    process.add_argument("--field-grid-rows", type=int, default=4)
     process.add_argument("--trail-length", type=int, default=45)
     process.add_argument("--max-seconds", type=float, default=None)
     process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -197,11 +207,31 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--refine-score-weight", type=float, default=2.0)
     top_camera.add_argument("--refine-area-weight", type=float, default=1.0)
     top_camera.add_argument("--refine-max-candidates-per-frame", type=int, default=6)
+    top_camera.add_argument("--field-calibration", default=None)
+    top_camera.add_argument("--field-analysis-out", default=None)
+    top_camera.add_argument("--field-trajectory-csv", default=None)
+    top_camera.add_argument("--field-grid-cols", type=int, default=6)
+    top_camera.add_argument("--field-grid-rows", type=int, default=4)
     top_camera.add_argument("--trail-length", type=int, default=45)
     top_camera.add_argument("--max-seconds", type=float, default=None)
     top_camera.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
     top_camera.set_defaults(func=cmd_process_top_camera)
+
+    field_analysis = sub.add_parser(
+        "field-analysis",
+        help="Convertir trayectoria de pelota a coordenadas de cancha con homografia.",
+    )
+    field_analysis.add_argument("--tracks", required=True)
+    field_analysis.add_argument("--calibration", required=True)
+    field_analysis.add_argument("--out", required=True)
+    field_analysis.add_argument("--csv-out", default=None)
+    field_analysis.add_argument("--fps", type=float, default=None)
+    field_analysis.add_argument("--possession-radius-px", type=float, default=90.0)
+    field_analysis.add_argument("--in-play-field-margin-px", type=float, default=8.0)
+    field_analysis.add_argument("--grid-cols", type=int, default=6)
+    field_analysis.add_argument("--grid-rows", type=int, default=4)
+    field_analysis.set_defaults(func=cmd_field_analysis)
 
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
@@ -631,6 +661,29 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         field_margin_px=field_margin_px,
     )
     write_events(events_out, events)
+    field_analysis_result = None
+    field_analysis_out = None
+    field_trajectory_csv = None
+    if args.field_calibration:
+        field_analysis_out = Path(
+            args.field_analysis_out
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-field-analysis.json"
+        )
+        field_trajectory_csv = Path(
+            args.field_trajectory_csv
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-trajectory.csv"
+        )
+        field_analysis_result = analyze_field_tracks(
+            tracked,
+            load_field_calibration(args.field_calibration),
+            fps=fps,
+            possession_radius_px=possession_radius_px,
+            field_margin_px=field_margin_px,
+            grid_cols=args.field_grid_cols,
+            grid_rows=args.field_grid_rows,
+        )
+        write_json(field_analysis_out, field_analysis_result)
+        write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
 
     rendered = None
     if args.render:
@@ -660,9 +713,16 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "tracks": str(tracks_out),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
+                    "field_analysis": str(field_analysis_out) if field_analysis_out else None,
+                    "field_trajectory_csv": (
+                        str(field_trajectory_csv) if field_trajectory_csv else None
+                    ),
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
+                "field_analysis_summary": (
+                    field_analysis_result.get("summary") if field_analysis_result else None
+                ),
                 "events": len(events),
             },
             ensure_ascii=False,
@@ -783,6 +843,30 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     )
     write_events(events_out, events)
 
+    field_analysis_result = None
+    field_analysis_out = None
+    field_trajectory_csv = None
+    if args.field_calibration:
+        field_analysis_out = Path(
+            args.field_analysis_out
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-field-analysis.json"
+        )
+        field_trajectory_csv = Path(
+            args.field_trajectory_csv
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-trajectory.csv"
+        )
+        field_analysis_result = analyze_field_tracks(
+            tracked,
+            load_field_calibration(args.field_calibration),
+            fps=fps,
+            possession_radius_px=possession_radius_px,
+            field_margin_px=field_margin_px,
+            grid_cols=args.field_grid_cols,
+            grid_rows=args.field_grid_rows,
+        )
+        write_json(field_analysis_out, field_analysis_result)
+        write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
+
     rendered = None
     if args.render:
         render_seconds = args.max_seconds
@@ -817,9 +901,16 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     "tracks": str(tracks_out),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
+                    "field_analysis": str(field_analysis_out) if field_analysis_out else None,
+                    "field_trajectory_csv": (
+                        str(field_trajectory_csv) if field_trajectory_csv else None
+                    ),
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
+                "field_analysis_summary": (
+                    field_analysis_result.get("summary") if field_analysis_result else None
+                ),
                 "events": len(events),
             },
             ensure_ascii=False,
@@ -875,6 +966,32 @@ def _filtered_prompts(prompts: dict, classes_csv: str | None) -> dict:
         return prompts
     classes = {part.strip() for part in classes_csv.split(",") if part.strip()}
     return {class_name: value for class_name, value in prompts.items() if class_name in classes}
+
+
+def cmd_field_analysis(args: argparse.Namespace) -> None:
+    analysis = analyze_field_tracks(
+        read_detections(args.tracks),
+        load_field_calibration(args.calibration),
+        fps=args.fps,
+        possession_radius_px=args.possession_radius_px,
+        field_margin_px=args.in_play_field_margin_px,
+        grid_cols=args.grid_cols,
+        grid_rows=args.grid_rows,
+    )
+    write_json(args.out, analysis)
+    if args.csv_out:
+        write_field_trajectory_csv(args.csv_out, analysis)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "csv_out": args.csv_out,
+                "summary": analysis["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def cmd_track(args: argparse.Namespace) -> None:
