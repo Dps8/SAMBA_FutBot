@@ -85,7 +85,8 @@ template image points with calibrated corners from each real top-camera setup.
 - `outputs/events/`: event candidates such as possession changes, collisions
   and shots.
 - `outputs/field_analysis/`: homography metrics, trajectory CSV files and
-  tactical field-map PNGs.
+  tactical field-map PNGs. It can also include robot projection CSVs,
+  calibration-frame JPGs and Markdown run reports.
 - `outputs/videos/`: rendered demo videos with tracking overlays.
 - `outputs/videos/qa_frames/`: QA screenshots sampled from rendered demos.
 

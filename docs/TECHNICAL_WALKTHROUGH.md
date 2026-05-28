@@ -177,6 +177,8 @@ Comandos principales:
 - `events`: genera eventos deportivos basicos.
 - `metrics`: resume tracks.
 - `render-demo`: renderiza video lado a lado.
+- `render-calibration-frame`: extrae un frame con guias para ajustar esquinas.
+- `summarize-run`: genera un resumen Markdown de una corrida.
 - `video-info`: imprime metadata de video.
 
 Flujo importante: `process-video`.
@@ -263,6 +265,7 @@ samba-futbot field-analysis `
   --calibration config\top_camera_homography_template.yml `
   --out "outputs\field_analysis\video-field-analysis.json" `
   --csv-out "outputs\field_analysis\video-trajectory.csv" `
+  --robot-csv-out "outputs\field_analysis\video-robots.csv" `
   --map-out "outputs\field_analysis\video-field-map.png" `
   --fps 30
 ```
@@ -272,6 +275,14 @@ con cuatro esquinas reales del campo en la imagen. Con eso, el sistema convierte
 la posicion de la pelota de pixeles a metros, calcula velocidad en `m/s`,
 distancia recorrida, una grilla de ocupacion por zonas y un PNG tactico con
 trayectoria sobre la cancha.
+
+El JSON de `field-analysis` tambien incluye candidatos reglamentarios:
+
+- entradas del balon a zona de porteria;
+- muestras del balon fuera de los limites del campo;
+- muestras de robots dentro del area de penalizacion;
+- proyeccion de robots a coordenadas de cancha usando `bottom_center` por
+  defecto.
 
 La plantilla usa las dimensiones oficiales del reglamento Copa FutBotMX 2026:
 
@@ -291,6 +302,30 @@ recalcular la trayectoria:
 samba-futbot render-field-map `
   --analysis "outputs\field_analysis\video-field-analysis.json" `
   --out "outputs\field_analysis\video-field-map.png"
+```
+
+Para preparar calibracion, extraer un frame con las esquinas actualmente
+configuradas:
+
+```powershell
+samba-futbot render-calibration-frame `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --calibration config\top_camera_homography_template.yml `
+  --frame-index 120 `
+  --out "outputs\field_analysis\calibration-frame-120.jpg"
+```
+
+Para generar un resumen Markdown listo para revisar:
+
+```powershell
+samba-futbot summarize-run `
+  --title "IMG_9938 camera superior" `
+  --metrics "outputs\metrics\clip-metrics.json" `
+  --events "outputs\events\clip-events.json" `
+  --field-analysis "outputs\field_analysis\clip-field-analysis.json" `
+  --field-map "outputs\field_analysis\clip-field-map.png" `
+  --demo "outputs\videos\clip-demo.mp4" `
+  --out "outputs\field_analysis\clip-report.md"
 ```
 
 ### `src/samba_futbot/config.py`
@@ -690,6 +725,7 @@ outputs/videos/*demo.mp4
 outputs/metrics/*metrics.json
 outputs/videos/qa_frames/*.jpg
 outputs/field_analysis/*field-map.png
+outputs/field_analysis/*report.md
 ```
 
 ## 9. Que Tenemos Cubierto Del Reto
