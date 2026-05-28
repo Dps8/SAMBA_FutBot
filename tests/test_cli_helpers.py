@@ -28,6 +28,8 @@ class CliHelpersTest(unittest.TestCase):
                 "calibration.yml",
                 "--out",
                 "analysis.json",
+                "--map-out",
+                "field-map.png",
                 "--grid-cols",
                 "8",
                 "--grid-rows",
@@ -37,6 +39,22 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.grid_cols, 8)
         self.assertEqual(args.grid_rows, 5)
+        self.assertEqual(args.map_out, "field-map.png")
+
+    def test_render_field_map_command_parses_width(self):
+        args = build_parser().parse_args(
+            [
+                "render-field-map",
+                "--analysis",
+                "analysis.json",
+                "--out",
+                "field-map.png",
+                "--width",
+                "900",
+            ]
+        )
+
+        self.assertEqual(args.width, 900)
 
 
 if __name__ == "__main__":

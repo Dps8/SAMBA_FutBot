@@ -21,7 +21,8 @@ from .field_analysis import (
     load_field_calibration,
     write_field_trajectory_csv,
 )
-from .io_utils import read_detections, write_detections, write_events, write_json
+from .field_viz import render_field_map
+from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
 from .sam3_adapter import run_sam3_video
 from .tracking import track_detections
@@ -168,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--field-calibration", default=None)
     process.add_argument("--field-analysis-out", default=None)
     process.add_argument("--field-trajectory-csv", default=None)
+    process.add_argument("--field-map-out", default=None)
     process.add_argument("--field-grid-cols", type=int, default=6)
     process.add_argument("--field-grid-rows", type=int, default=4)
     process.add_argument("--trail-length", type=int, default=45)
@@ -210,6 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--field-calibration", default=None)
     top_camera.add_argument("--field-analysis-out", default=None)
     top_camera.add_argument("--field-trajectory-csv", default=None)
+    top_camera.add_argument("--field-map-out", default=None)
     top_camera.add_argument("--field-grid-cols", type=int, default=6)
     top_camera.add_argument("--field-grid-rows", type=int, default=4)
     top_camera.add_argument("--trail-length", type=int, default=45)
@@ -226,12 +229,22 @@ def build_parser() -> argparse.ArgumentParser:
     field_analysis.add_argument("--calibration", required=True)
     field_analysis.add_argument("--out", required=True)
     field_analysis.add_argument("--csv-out", default=None)
+    field_analysis.add_argument("--map-out", default=None)
     field_analysis.add_argument("--fps", type=float, default=None)
     field_analysis.add_argument("--possession-radius-px", type=float, default=90.0)
     field_analysis.add_argument("--in-play-field-margin-px", type=float, default=8.0)
     field_analysis.add_argument("--grid-cols", type=int, default=6)
     field_analysis.add_argument("--grid-rows", type=int, default=4)
     field_analysis.set_defaults(func=cmd_field_analysis)
+
+    field_map = sub.add_parser(
+        "render-field-map",
+        help="Renderizar PNG tactico desde un JSON de field-analysis.",
+    )
+    field_map.add_argument("--analysis", required=True)
+    field_map.add_argument("--out", required=True)
+    field_map.add_argument("--width", type=int, default=1200)
+    field_map.set_defaults(func=cmd_render_field_map)
 
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
@@ -664,6 +677,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     field_analysis_result = None
     field_analysis_out = None
     field_trajectory_csv = None
+    field_map_out = None
     if args.field_calibration:
         field_analysis_out = Path(
             args.field_analysis_out
@@ -672,6 +686,10 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         field_trajectory_csv = Path(
             args.field_trajectory_csv
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-trajectory.csv"
+        )
+        field_map_out = Path(
+            args.field_map_out
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-field-map.png"
         )
         field_analysis_result = analyze_field_tracks(
             tracked,
@@ -684,6 +702,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         )
         write_json(field_analysis_out, field_analysis_result)
         write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
+        render_field_map(field_analysis_result, field_map_out)
 
     rendered = None
     if args.render:
@@ -717,6 +736,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "field_trajectory_csv": (
                         str(field_trajectory_csv) if field_trajectory_csv else None
                     ),
+                    "field_map": str(field_map_out) if field_map_out else None,
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
@@ -846,6 +866,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     field_analysis_result = None
     field_analysis_out = None
     field_trajectory_csv = None
+    field_map_out = None
     if args.field_calibration:
         field_analysis_out = Path(
             args.field_analysis_out
@@ -854,6 +875,10 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         field_trajectory_csv = Path(
             args.field_trajectory_csv
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-trajectory.csv"
+        )
+        field_map_out = Path(
+            args.field_map_out
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-field-map.png"
         )
         field_analysis_result = analyze_field_tracks(
             tracked,
@@ -866,6 +891,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         )
         write_json(field_analysis_out, field_analysis_result)
         write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
+        render_field_map(field_analysis_result, field_map_out)
 
     rendered = None
     if args.render:
@@ -905,6 +931,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     "field_trajectory_csv": (
                         str(field_trajectory_csv) if field_trajectory_csv else None
                     ),
+                    "field_map": str(field_map_out) if field_map_out else None,
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
@@ -981,17 +1008,25 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
     write_json(args.out, analysis)
     if args.csv_out:
         write_field_trajectory_csv(args.csv_out, analysis)
+    if args.map_out:
+        render_field_map(analysis, args.map_out)
     print(
         json.dumps(
             {
                 "out": args.out,
                 "csv_out": args.csv_out,
+                "map_out": args.map_out,
                 "summary": analysis["summary"],
             },
             ensure_ascii=False,
             indent=2,
         )
     )
+
+
+def cmd_render_field_map(args: argparse.Namespace) -> None:
+    out = render_field_map(read_json(args.analysis), args.out, width=args.width)
+    print(json.dumps({"map": str(out)}, indent=2))
 
 
 def cmd_track(args: argparse.Namespace) -> None:
