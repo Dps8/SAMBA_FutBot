@@ -66,6 +66,13 @@ single command through `samba-futbot process-top-camera`, so new overhead clips
 can reproduce the reviewed `top-fusion-hsv-v3-minarea` variant without chaining
 manual detector, merge, refine, tracking and rendering commands.
 
+The next tactical layer is implemented as an optional homography analysis:
+`samba-futbot field-analysis` or `process-top-camera --field-calibration`.
+Given four calibrated field corners, it converts in-play ball centroids from
+pixels to field meters, exports a trajectory CSV, reports speed in `m/s`,
+distance traveled and a zone-occupancy grid. This keeps the professional
+analysis grounded in field geometry instead of only screen-space pixels.
+
 ## Artifact Types
 
 - `outputs/detections/`: SAM3 detections as JSONL.

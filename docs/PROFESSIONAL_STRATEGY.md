@@ -32,6 +32,9 @@ ejecutar un notebook.
 
 5. **Analisis de juego**
    - Posesion: robot mas cercano al balon en coordenadas de cancha o pixeles.
+   - Homografia: convertir centros de pelota desde pixeles a metros de cancha.
+   - Zonas: reportar ocupacion por grilla para diferenciar juego defensivo,
+     medio y ofensivo.
    - Pase: cambio de poseedor dentro del mismo equipo.
    - Intercepcion: cambio de poseedor entre equipos.
    - Tiro: velocidad del balon hacia zona de gol.

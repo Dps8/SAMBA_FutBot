@@ -172,6 +172,7 @@ Comandos principales:
   candidatos de pelota.
 - `process-video`: pipeline completo por video.
 - `process-top-camera`: pipeline especializado para camara superior.
+- `field-analysis`: homografia de pixeles a coordenadas de cancha.
 - `track`: aplica tracker IoU.
 - `events`: genera eventos deportivos basicos.
 - `metrics`: resume tracks.
@@ -240,6 +241,35 @@ Parametros clave de esa ruta:
   frames.
 - `--refine-preferred-area 680`: sesga la seleccion hacia el tamano esperado de
   la pelota en esta vista.
+
+Si hay una calibracion de cancha, el mismo comando puede exportar coordenadas
+metricas, ocupacion por zonas y trayectoria CSV:
+
+```powershell
+samba-futbot process-top-camera `
+  --config config/default.yml `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --results-dir "outputs\review\2026-05-27\18abril_top_camera\runs" `
+  --field-calibration config\top_camera_homography_template.yml `
+  --render
+```
+
+Tambien se puede ejecutar como post-proceso sobre un archivo de tracks ya
+existente:
+
+```powershell
+samba-futbot field-analysis `
+  --tracks "outputs\tracks\video-tracks.jsonl" `
+  --calibration config\top_camera_homography_template.yml `
+  --out "outputs\field_analysis\video-field-analysis.json" `
+  --csv-out "outputs\field_analysis\video-trajectory.csv" `
+  --fps 30
+```
+
+El archivo `config/top_camera_homography_template.yml` debe copiarse y ajustarse
+con cuatro esquinas reales del campo en la imagen. Con eso, el sistema convierte
+la posicion de la pelota de pixeles a metros, calcula velocidad en `m/s`,
+distancia recorrida y una grilla de ocupacion por zonas.
 
 ### `src/samba_futbot/config.py`
 
@@ -555,6 +585,17 @@ samba-futbot process-top-camera \
   --render
 ```
 
+Con homografia calibrada:
+
+```bash
+samba-futbot process-top-camera \
+  --config config/default.yml \
+  --video "/ruta/clip_camara_superior.mp4" \
+  --results-dir outputs \
+  --field-calibration config/top_camera_homography_template.yml \
+  --render
+```
+
 Para lotes:
 
 ```bash
@@ -640,13 +681,16 @@ Cubierto:
 - resultados con Git LFS;
 - procesamiento por clips para videos largos;
 - prompt engineering y contexto temporal;
-- flujo hibrido de camara superior con SAM3 + HSV + refinamiento temporal.
+- flujo hibrido de camara superior con SAM3 + HSV + refinamiento temporal;
+- homografia opcional para trayectoria, velocidad y ocupacion por zonas en
+  coordenadas de cancha.
 
 En progreso/falta reforzar:
 
 - aliados vs rivales;
 - eventos deportivos fuertes;
 - visualizacion tipo dashboard/panel;
+- calibracion real por video/cancha para sustituir la plantilla de homografia;
 - demo final de maximo 2 minutos;
 - reel publico de 30 segundos;
 - README final de entrega.
