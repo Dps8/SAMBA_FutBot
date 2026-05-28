@@ -166,7 +166,12 @@ Comandos principales:
 - `run-sam3`: corre SAM 3 una vez sobre un video.
 - `run-sam3-sweep`: corre SAM 3 por ventanas/anclas.
 - `merge-detections`: fusiona detecciones JSONL.
+- `filter-detections`: filtra falsos positivos geometricos.
+- `detect-orange-ball`: detector HSV/color/forma para pelota naranja.
+- `refine-ball`: elige una trayectoria temporal coherente entre multiples
+  candidatos de pelota.
 - `process-video`: pipeline completo por video.
+- `process-top-camera`: pipeline especializado para camara superior.
 - `track`: aplica tracker IoU.
 - `events`: genera eventos deportivos basicos.
 - `metrics`: resume tracks.
@@ -199,6 +204,42 @@ samba-futbot process-video `
   --clip-windows `
   --render
 ```
+
+Flujo importante: `process-top-camera`.
+
+Este es el flujo recomendado para clips de camara superior donde la pelota
+naranja es pequena y SAM 3 puede saltarsela en algunos frames. La estrategia es
+deliberadamente hibrida:
+
+1. Lee metadata con `video_info`.
+2. Calcula anchors de campo/robots.
+3. Ejecuta SAM 3 solo para `field,robots`, donde el modelo es estable.
+4. Detecta la pelota naranja con HSV, area y circularidad.
+5. Usa las detecciones de robots para descartar manchas naranjas dentro de
+   robots.
+6. Fusiona campo/robots con candidatos de pelota.
+7. Aplica refinamiento temporal por programacion dinamica.
+8. Corre tracking, metricas, eventos y demo.
+
+Ejemplo recomendado para un clip de 10 segundos de camara superior:
+
+```powershell
+samba-futbot process-top-camera `
+  --config config/default.yml `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --results-dir "outputs\review\2026-05-27\18abril_top_camera\runs" `
+  --render
+```
+
+Parametros clave de esa ruta:
+
+- `--orange-min-area 300`: descarta reflejos o marcas naranjas demasiado
+  pequenas.
+- `--orange-max-per-frame 6`: conserva varios candidatos antes del refinamiento.
+- `--refine-max-jump-px 35`: penaliza saltos imposibles de la pelota entre
+  frames.
+- `--refine-preferred-area 680`: sesga la seleccion hacia el tamano esperado de
+  la pelota en esta vista.
 
 ### `src/samba_futbot/config.py`
 
@@ -469,6 +510,16 @@ samba-futbot process-video `
   --render
 ```
 
+Procesar clip de camara superior con la ruta recomendada actual:
+
+```powershell
+samba-futbot process-top-camera `
+  --config config/default.yml `
+  --video "ruta\clip_camara_superior.mp4" `
+  --results-dir outputs `
+  --render
+```
+
 ## 7. Despliegue En Maquina GPU
 
 La maquina GPU debe tener:
@@ -494,6 +545,16 @@ samba-futbot process-video \
   --render
 ```
 
+Para clips de camara superior, usar la variante hibrida:
+
+```bash
+samba-futbot process-top-camera \
+  --config config/default.yml \
+  --video "/ruta/clip_camara_superior.mp4" \
+  --results-dir outputs \
+  --render
+```
+
 Para lotes:
 
 ```bash
@@ -503,6 +564,18 @@ for VIDEO in /ruta/videos/*.mov; do
     --video "$VIDEO" \
     --results-dir outputs \
     --clip-windows \
+    --render
+done
+```
+
+Para un lote de clips ya recortados desde la camara superior:
+
+```bash
+for VIDEO in /ruta/clips_camara_superior/*.mp4; do
+  samba-futbot process-top-camera \
+    --config config/default.yml \
+    --video "$VIDEO" \
+    --results-dir outputs \
     --render
 done
 ```
@@ -538,6 +611,15 @@ samba-futbot process-video `
   --results-dir outputs
 ```
 
+Para camara superior, primero se recomienda recortar clips utiles y luego:
+
+```powershell
+samba-futbot process-top-camera `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --results-dir "outputs\review\2026-05-27\18abril_top_camera\runs" `
+  --render
+```
+
 ### Paso 4: revisar resultados
 
 ```text
@@ -557,7 +639,8 @@ Cubierto:
 - demos MP4;
 - resultados con Git LFS;
 - procesamiento por clips para videos largos;
-- prompt engineering y contexto temporal.
+- prompt engineering y contexto temporal;
+- flujo hibrido de camara superior con SAM3 + HSV + refinamiento temporal.
 
 En progreso/falta reforzar:
 

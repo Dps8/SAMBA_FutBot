@@ -61,7 +61,10 @@ field/robot detections with an HSV orange-ball fallback, removes orange blobs
 inside robot boxes, rejects edge-touching and undersized ball candidates, refines
 the ball path with temporal dynamic programming and then computes in-play
 trajectories. This avoids relying only on text prompts when SAM3 misses the
-small orange ball from the overhead camera.
+small orange ball from the overhead camera. The same route is now available as a
+single command through `samba-futbot process-top-camera`, so new overhead clips
+can reproduce the reviewed `top-fusion-hsv-v3-minarea` variant without chaining
+manual detector, merge, refine, tracking and rendering commands.
 
 ## Artifact Types
 

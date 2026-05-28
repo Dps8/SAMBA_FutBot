@@ -55,4 +55,5 @@ Metrics:
 - The prompt set now includes small bright orange ball, orange soccer ball and sideline/white-line context. This helped recover some hard cases, but QA still flags false positives near borders and hands.
 - ROI-aware ball filtering rejects ball boxes that touch the frame border, preventing false events from hand/edge artifacts.
 - The `top-fusion-hsv-v3-minarea` path combines SAM3 for field/robots with an HSV color/shape fallback for the orange ball, removes blobs inside robot boxes, filters small orange distractors, and refines the ball with temporal dynamic programming. This is the current differentiator versus a prompt-only SAM3 solution.
+- The reviewed top-camera route is now exposed as `samba-futbot process-top-camera`, so future clips can reproduce the current best variant from one command.
 - Next improvement should add homography/zone coordinates from the top camera so the trajectories can be reported in field space instead of pixels.

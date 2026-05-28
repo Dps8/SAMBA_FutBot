@@ -166,6 +166,43 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
     process.set_defaults(func=cmd_process_video)
 
+    top_camera = sub.add_parser(
+        "process-top-camera",
+        help="Pipeline para camara superior: SAM3 campo/robots + pelota naranja HSV + refinamiento.",
+    )
+    top_camera.add_argument("--config", default="config/default.yml")
+    top_camera.add_argument("--video", required=True)
+    top_camera.add_argument("--results-dir", default="outputs")
+    top_camera.add_argument("--suffix", default="top-fusion-hsv-v3-minarea")
+    top_camera.add_argument("--field-window-size", type=int, default=300)
+    top_camera.add_argument("--field-step", type=int, default=300)
+    top_camera.add_argument("--field-start", type=int, default=0)
+    top_camera.add_argument("--field-threshold", type=float, default=0.45)
+    top_camera.add_argument("--field-dedupe-iou", type=float, default=0.90)
+    top_camera.add_argument("--merge-dedupe-iou", type=float, default=0.85)
+    top_camera.add_argument("--track-iou-threshold", type=float, default=0.05)
+    top_camera.add_argument("--track-max-age", type=int, default=20)
+    top_camera.add_argument("--possession-radius-px", type=float, default=None)
+    top_camera.add_argument("--collision-radius-px", type=float, default=None)
+    top_camera.add_argument("--goal-x-margin-ratio", type=float, default=None)
+    top_camera.add_argument("--in-play-field-margin-px", type=float, default=None)
+    top_camera.add_argument("--ball-border-margin-px", type=float, default=None)
+    top_camera.add_argument("--orange-min-area", type=float, default=300.0)
+    top_camera.add_argument("--orange-max-area", type=float, default=2200.0)
+    top_camera.add_argument("--orange-min-circularity", type=float, default=0.45)
+    top_camera.add_argument("--orange-robot-margin-px", type=float, default=8.0)
+    top_camera.add_argument("--orange-max-per-frame", type=int, default=6)
+    top_camera.add_argument("--refine-max-jump-px", type=float, default=35.0)
+    top_camera.add_argument("--refine-preferred-area", type=float, default=680.0)
+    top_camera.add_argument("--refine-score-weight", type=float, default=2.0)
+    top_camera.add_argument("--refine-area-weight", type=float, default=1.0)
+    top_camera.add_argument("--refine-max-candidates-per-frame", type=int, default=6)
+    top_camera.add_argument("--trail-length", type=int, default=45)
+    top_camera.add_argument("--max-seconds", type=float, default=None)
+    top_camera.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.set_defaults(func=cmd_process_top_camera)
+
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
     track.add_argument("--out", required=True)
@@ -620,6 +657,163 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                 "tracks": len({det.track_id for det in tracked if det.track_id is not None}),
                 "paths": {
                     "detections": str(merged_out),
+                    "tracks": str(tracks_out),
+                    "metrics": str(metrics_out),
+                    "events": str(events_out),
+                    "demo": str(rendered) if rendered else None,
+                },
+                "metrics": summary,
+                "events": len(events),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_process_top_camera(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    analysis_config = config.get("analysis", {})
+    info = video_info(args.video)
+    end_frame = int(info["frames"])
+    fps = float(info.get("fps") or analysis_config.get("fps", 30))
+    duration_seconds = info.get("duration_seconds")
+    stem = Path(args.video).stem
+    results_dir = Path(args.results_dir)
+
+    field_prompt_frames = _frame_anchors(
+        end_frame,
+        start=args.field_start,
+        step=args.field_step,
+    )
+
+    field_out = results_dir / "detections" / f"{stem}-field-robots-sweep-clipped"
+    hsv_ball_out = results_dir / "detections" / f"{stem}-{args.suffix}-orange-ball.jsonl"
+    merged_dir = results_dir / "detections" / f"{stem}-{args.suffix}"
+    merged_out = merged_dir / "detections.jsonl"
+    refined_out = merged_dir / "detections-refined.jsonl"
+    tracks_out = results_dir / "tracks" / f"{stem}-{args.suffix}-tracks.jsonl"
+    metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
+    events_out = results_dir / "events" / f"{stem}-{args.suffix}-events.json"
+    video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
+
+    _run_sweep_for_process(
+        args,
+        classes="field,robots",
+        prompt_frames=field_prompt_frames,
+        window_size=args.field_window_size,
+        end_frame=end_frame,
+        out=field_out,
+        threshold=args.field_threshold,
+        dedupe_iou=args.field_dedupe_iou,
+    )
+
+    ball_border_margin_px = (
+        args.ball_border_margin_px
+        if args.ball_border_margin_px is not None
+        else float(analysis_config.get("ball_border_margin_px", 4))
+    )
+    hsv_ball_detections = detect_orange_ball(
+        args.video,
+        hsv_ball_out,
+        max_frames=end_frame,
+        min_area=args.orange_min_area,
+        max_area=args.orange_max_area,
+        min_circularity=args.orange_min_circularity,
+        context_detections_path=field_out / "detections.jsonl",
+        robot_margin_px=args.orange_robot_margin_px,
+        border_margin_px=ball_border_margin_px,
+        max_per_frame=args.orange_max_per_frame,
+    )
+
+    merged = merge_detection_files(
+        [field_out / "detections.jsonl", hsv_ball_out],
+        merged_out,
+        iou_threshold=args.merge_dedupe_iou,
+    )
+    refined = refine_ball_trajectory(
+        merged,
+        max_jump_px=args.refine_max_jump_px,
+        preferred_area=args.refine_preferred_area,
+        score_weight=args.refine_score_weight,
+        area_weight=args.refine_area_weight,
+        max_candidates_per_frame=args.refine_max_candidates_per_frame,
+    )
+    write_detections(refined_out, refined)
+
+    tracked = track_detections(
+        refined,
+        iou_threshold=args.track_iou_threshold,
+        max_age=args.track_max_age,
+    )
+    write_detections(tracks_out, tracked)
+
+    possession_radius_px = (
+        args.possession_radius_px
+        if args.possession_radius_px is not None
+        else float(analysis_config.get("possession_radius_px", 90))
+    )
+    field_margin_px = (
+        args.in_play_field_margin_px
+        if args.in_play_field_margin_px is not None
+        else float(analysis_config.get("in_play_field_margin_px", 8))
+    )
+    summary = summarize_tracks(
+        tracked,
+        fps=fps,
+        possession_radius_px=possession_radius_px,
+        field_margin_px=field_margin_px,
+    )
+    write_json(metrics_out, summary)
+    events = detect_events(
+        tracked,
+        possession_radius_px=possession_radius_px,
+        collision_radius_px=(
+            args.collision_radius_px
+            if args.collision_radius_px is not None
+            else float(analysis_config.get("collision_radius_px", 55))
+        ),
+        frame_width=int(info.get("width") or 0) or None,
+        goal_x_margin_ratio=(
+            args.goal_x_margin_ratio
+            if args.goal_x_margin_ratio is not None
+            else float(analysis_config.get("goal_x_margin_ratio", 0.08))
+        ),
+        field_margin_px=field_margin_px,
+    )
+    write_events(events_out, events)
+
+    rendered = None
+    if args.render:
+        render_seconds = args.max_seconds
+        if render_seconds is None:
+            render_seconds = duration_seconds
+        rendered = render_demo_video(
+            args.video,
+            tracks_out,
+            video_out,
+            max_seconds=render_seconds,
+            trail_length=args.trail_length,
+        )
+
+    ball_in = sum(1 for det in merged if det.class_name in {"ball", "balon", "soccer_ball"})
+    ball_out = sum(1 for det in refined if det.class_name in {"ball", "balon", "soccer_ball"})
+    print(
+        json.dumps(
+            {
+                "video": args.video,
+                "frames": end_frame,
+                "field_prompt_frames": field_prompt_frames,
+                "hsv_ball_candidates": len(hsv_ball_detections),
+                "ball_candidates_before_refine": ball_in,
+                "ball_detections_after_refine": ball_out,
+                "detections": len(refined),
+                "tracks": len({det.track_id for det in tracked if det.track_id is not None}),
+                "paths": {
+                    "field_detections": str(field_out / "detections.jsonl"),
+                    "hsv_ball_detections": str(hsv_ball_out),
+                    "detections": str(merged_out),
+                    "refined_detections": str(refined_out),
                     "tracks": str(tracks_out),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
