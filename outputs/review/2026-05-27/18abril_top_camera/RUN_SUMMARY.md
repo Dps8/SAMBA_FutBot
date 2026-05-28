@@ -56,4 +56,4 @@ Metrics:
 - ROI-aware ball filtering rejects ball boxes that touch the frame border, preventing false events from hand/edge artifacts.
 - The `top-fusion-hsv-v3-minarea` path combines SAM3 for field/robots with an HSV color/shape fallback for the orange ball, removes blobs inside robot boxes, filters small orange distractors, and refines the ball with temporal dynamic programming. This is the current differentiator versus a prompt-only SAM3 solution.
 - The reviewed top-camera route is now exposed as `samba-futbot process-top-camera`, so future clips can reproduce the current best variant from one command.
-- Homography/zone reporting is now available through `samba-futbot field-analysis` and `process-top-camera --field-calibration`; the remaining task is to calibrate each real top-camera setup with measured field corners.
+- Homography/zone reporting is now available through `samba-futbot field-analysis` and `process-top-camera --field-calibration`; it can also export a PNG tactical field map. The remaining task is to calibrate each real top-camera setup with measured field corners.

@@ -263,13 +263,24 @@ samba-futbot field-analysis `
   --calibration config\top_camera_homography_template.yml `
   --out "outputs\field_analysis\video-field-analysis.json" `
   --csv-out "outputs\field_analysis\video-trajectory.csv" `
+  --map-out "outputs\field_analysis\video-field-map.png" `
   --fps 30
 ```
 
 El archivo `config/top_camera_homography_template.yml` debe copiarse y ajustarse
 con cuatro esquinas reales del campo en la imagen. Con eso, el sistema convierte
 la posicion de la pelota de pixeles a metros, calcula velocidad en `m/s`,
-distancia recorrida y una grilla de ocupacion por zonas.
+distancia recorrida, una grilla de ocupacion por zonas y un PNG tactico con
+trayectoria sobre la cancha.
+
+Si ya existe un JSON de `field-analysis`, tambien puede renderizarse el mapa sin
+recalcular la trayectoria:
+
+```powershell
+samba-futbot render-field-map `
+  --analysis "outputs\field_analysis\video-field-analysis.json" `
+  --out "outputs\field_analysis\video-field-map.png"
+```
 
 ### `src/samba_futbot/config.py`
 
@@ -667,6 +678,7 @@ samba-futbot process-top-camera `
 outputs/videos/*demo.mp4
 outputs/metrics/*metrics.json
 outputs/videos/qa_frames/*.jpg
+outputs/field_analysis/*field-map.png
 ```
 
 ## 9. Que Tenemos Cubierto Del Reto

@@ -70,8 +70,9 @@ The next tactical layer is implemented as an optional homography analysis:
 `samba-futbot field-analysis` or `process-top-camera --field-calibration`.
 Given four calibrated field corners, it converts in-play ball centroids from
 pixels to field meters, exports a trajectory CSV, reports speed in `m/s`,
-distance traveled and a zone-occupancy grid. This keeps the professional
-analysis grounded in field geometry instead of only screen-space pixels.
+distance traveled, a zone-occupancy grid and a tactical PNG field map. This
+keeps the professional analysis grounded in field geometry instead of only
+screen-space pixels.
 
 ## Artifact Types
 
@@ -80,6 +81,8 @@ analysis grounded in field geometry instead of only screen-space pixels.
 - `outputs/metrics/`: per-video summary metrics as JSON.
 - `outputs/events/`: event candidates such as possession changes, collisions
   and shots.
+- `outputs/field_analysis/`: homography metrics, trajectory CSV files and
+  tactical field-map PNGs.
 - `outputs/videos/`: rendered demo videos with tracking overlays.
 - `outputs/videos/qa_frames/`: QA screenshots sampled from rendered demos.
 

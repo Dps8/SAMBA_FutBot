@@ -35,6 +35,8 @@ ejecutar un notebook.
    - Homografia: convertir centros de pelota desde pixeles a metros de cancha.
    - Zonas: reportar ocupacion por grilla para diferenciar juego defensivo,
      medio y ofensivo.
+   - Mapa tactico: PNG con trayectoria y calor por zonas para explicar el
+     comportamiento sin depender del video completo.
    - Pase: cambio de poseedor dentro del mismo equipo.
    - Intercepcion: cambio de poseedor entre equipos.
    - Tiro: velocidad del balon hacia zona de gol.
