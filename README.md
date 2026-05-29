@@ -53,6 +53,7 @@ outputs/
   tracks/                             Detecciones con track_id.
   metrics/                            Resumenes numericos JSON.
   events/                             Eventos candidatos JSON.
+  events/*event-summary.json          Marcador candidato y conteos deportivos.
   field_analysis/                     Homografia, CSVs y mapas tacticos.
   qa/                                 Reportes automaticos de calidad.
   videos/                             Videos demo renderizados.
@@ -289,6 +290,18 @@ python -m samba_futbot.cli field-analysis `
   --fps 30
 ```
 
+Validar una calibracion antes de confiar en distancias y velocidades metricas:
+
+```powershell
+python -m samba_futbot.cli calibration-check `
+  --calibration config\top_camera_homography_template.yml `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --out "outputs\field_analysis\calibration-quality.json"
+```
+
+El resultado incluye `status`, error de reproyeccion, area del poligono de campo
+en pixeles y puntos fuera del frame.
+
 ## Comandos Individuales
 
 Ejecutar SAM 3 directo:
@@ -358,7 +371,16 @@ Eventos:
 ```powershell
 python -m samba_futbot.cli events `
   --tracks "outputs\tracks\video-tracks.jsonl" `
-  --out "outputs\events\video-events.json"
+  --out "outputs\events\video-events.json" `
+  --summary-out "outputs\events\video-event-summary.json"
+```
+
+Resumen de eventos desde un archivo existente:
+
+```powershell
+python -m samba_futbot.cli event-summary `
+  --events "outputs\events\video-events.json" `
+  --out "outputs\events\video-event-summary.json"
 ```
 
 Render demo:
@@ -403,7 +425,10 @@ Cada corrida puede producir:
 - `detections-refined.jsonl`: detecciones despues de elegir trayectoria de pelota.
 - `tracks.jsonl`: detecciones con IDs temporales.
 - `metrics.json`: cobertura, fragmentacion, velocidades y conteos.
+  Incluye posesion por equipo y racha mas larga de posesion.
 - `events.json`: tiros, pases, posesion, colisiones o goles candidatos.
+- `event-summary.json`: marcador candidato por equipo, goles por porteria,
+  pases, intercepciones, tiros y colisiones.
 - `field-analysis.json`: coordenadas metricas, zonas, velocidad en m/s y reglas.
 - `trajectory.csv`: trayectoria de pelota en metros.
 - `robots.csv`: posiciones proyectadas de robots.

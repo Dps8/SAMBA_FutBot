@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from .ball_refinement import refine_ball_trajectory
-from .calibration import render_calibration_frame
+from .calibration import calibration_quality_report, render_calibration_frame, write_calibration_quality
 from .config import deep_get, load_config
 from .color_ball import detect_orange_ball
 from .color_goals import detect_colored_goals, enforce_goal_frame_constraints
@@ -17,7 +17,7 @@ from .drive import (
     load_manifest,
     write_manifest,
 )
-from .events import detect_events
+from .events import detect_events, summarize_events
 from .field_analysis import (
     analyze_field_tracks,
     load_field_calibration,
@@ -306,6 +306,17 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_frame.add_argument("--calibration", default=None)
     calibration_frame.set_defaults(func=cmd_render_calibration_frame)
 
+    calibration_check = sub.add_parser(
+        "calibration-check",
+        help="Validar una homografia/calibracion de cancha.",
+    )
+    calibration_check.add_argument("--calibration", required=True)
+    calibration_check.add_argument("--out", default=None)
+    calibration_check.add_argument("--video", default=None)
+    calibration_check.add_argument("--frame-width", type=int, default=None)
+    calibration_check.add_argument("--frame-height", type=int, default=None)
+    calibration_check.set_defaults(func=cmd_calibration_check)
+
     report = sub.add_parser("summarize-run", help="Crear resumen Markdown de una corrida.")
     report.add_argument("--out", required=True)
     report.add_argument("--title", default="SAMBA FutBot Run")
@@ -340,11 +351,20 @@ def build_parser() -> argparse.ArgumentParser:
     events = sub.add_parser("events", help="Detectar eventos de juego.")
     events.add_argument("--tracks", required=True)
     events.add_argument("--out", required=True)
+    events.add_argument("--summary-out", default=None)
     events.add_argument("--possession-radius-px", type=float, default=90)
     events.add_argument("--collision-radius-px", type=float, default=55)
     events.add_argument("--frame-width", type=int, default=None)
     events.add_argument("--in-play-field-margin-px", type=float, default=8.0)
     events.set_defaults(func=cmd_events)
+
+    event_summary = sub.add_parser(
+        "event-summary",
+        help="Resumir eventos en marcador candidato y conteos deportivos.",
+    )
+    event_summary.add_argument("--events", required=True)
+    event_summary.add_argument("--out", required=True)
+    event_summary.set_defaults(func=cmd_event_summary)
 
     metrics = sub.add_parser("metrics", help="Calcular metricas operativas.")
     metrics.add_argument("--tracks", required=True)
@@ -684,6 +704,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     tracks_out = results_dir / "tracks" / f"{stem}-{args.suffix}-tracks.jsonl"
     metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
     events_out = results_dir / "events" / f"{stem}-{args.suffix}-events.json"
+    event_summary_out = results_dir / "events" / f"{stem}-{args.suffix}-event-summary.json"
     video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
 
     field_detections = _run_sweep_for_process(
@@ -780,6 +801,8 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         field_margin_px=field_margin_px,
     )
     write_events(events_out, events)
+    event_summary = summarize_events(events)
+    write_json(event_summary_out, event_summary)
     field_analysis_result = None
     field_analysis_out = None
     field_trajectory_csv = None
@@ -856,6 +879,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "tracks": str(tracks_out),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
+                    "event_summary": str(event_summary_out),
                     "field_analysis": str(field_analysis_out) if field_analysis_out else None,
                     "field_trajectory_csv": (
                         str(field_trajectory_csv) if field_trajectory_csv else None
@@ -872,6 +896,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                 ),
                 "qa_status": qa_report.get("status") if qa_report else None,
                 "events": len(events),
+                "event_summary": event_summary,
                 "color_goal_detections": (
                     len(color_goal_detections) if color_goal_detections is not None else None
                 ),
@@ -927,6 +952,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     tracks_out = results_dir / "tracks" / f"{stem}-{args.suffix}-tracks.jsonl"
     metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
     events_out = results_dir / "events" / f"{stem}-{args.suffix}-events.json"
+    event_summary_out = results_dir / "events" / f"{stem}-{args.suffix}-event-summary.json"
     video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
 
     field_detections = _run_sweep_for_process(
@@ -1056,6 +1082,8 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         field_margin_px=field_margin_px,
     )
     write_events(events_out, events)
+    event_summary = summarize_events(events)
+    write_json(event_summary_out, event_summary)
 
     field_analysis_result = None
     field_analysis_out = None
@@ -1154,6 +1182,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     "tracks": str(tracks_out),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
+                    "event_summary": str(event_summary_out),
                     "field_analysis": str(field_analysis_out) if field_analysis_out else None,
                     "field_trajectory_csv": (
                         str(field_trajectory_csv) if field_trajectory_csv else None
@@ -1170,6 +1199,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                 ),
                 "qa_status": qa_report.get("status") if qa_report else None,
                 "events": len(events),
+                "event_summary": event_summary,
             },
             ensure_ascii=False,
             indent=2,
@@ -1438,6 +1468,23 @@ def cmd_render_calibration_frame(args: argparse.Namespace) -> None:
     print(json.dumps({"calibration_frame": str(out)}, indent=2))
 
 
+def cmd_calibration_check(args: argparse.Namespace) -> None:
+    frame_width = args.frame_width
+    frame_height = args.frame_height
+    if args.video and (frame_width is None or frame_height is None):
+        info = video_info(args.video)
+        frame_width = int(info.get("width") or 0) or frame_width
+        frame_height = int(info.get("height") or 0) or frame_height
+    report = calibration_quality_report(
+        load_field_calibration(args.calibration),
+        frame_width=frame_width,
+        frame_height=frame_height,
+    )
+    if args.out:
+        write_calibration_quality(args.out, report)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 def cmd_summarize_run(args: argparse.Namespace) -> None:
     out = write_run_report(
         args.out,
@@ -1509,7 +1556,30 @@ def cmd_events(args: argparse.Namespace) -> None:
         field_margin_px=args.in_play_field_margin_px,
     )
     write_events(args.out, events)
-    print(json.dumps({"events_out": args.out, "events": len(events)}, indent=2))
+    summary = summarize_events(events)
+    if args.summary_out:
+        write_json(args.summary_out, summary)
+    print(
+        json.dumps(
+            {
+                "events_out": args.out,
+                "summary_out": args.summary_out,
+                "events": len(events),
+                "summary": summary,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_event_summary(args: argparse.Namespace) -> None:
+    events = read_json(args.events)
+    if not isinstance(events, list):
+        raise ValueError(f"Expected JSON array: {args.events}")
+    summary = summarize_events(events)
+    write_json(args.out, summary)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 
 def cmd_metrics(args: argparse.Namespace) -> None:

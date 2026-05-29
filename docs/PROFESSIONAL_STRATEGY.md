@@ -53,11 +53,16 @@ ejecutar un notebook.
    - Reglas oficiales: usar campo `2.43 m x 1.82 m`, circulo central de
      `0.60 m`, area de penalizacion `0.25 m x 0.80 m` y porteria de `0.60 m`
      para que las metricas sean defendibles.
+   - Validacion de calibracion: reportar error de reproyeccion y puntos fuera
+     de frame antes de presentar distancias o velocidades en metros.
    - Candidatos reglamentarios: entradas a porteria, balon fuera de campo y
      muestras de robots en area de penalizacion.
    - Goles visuales: si SAM3 detecta `goal_blue` o `goal_yellow`, generar
      candidatos de gol cuando la pelota entra en la caja de porteria. Para
      resultados finales se prefiere homografia y validacion manual.
+   - Resumen deportivo: convertir `events.json` en marcador candidato, goles por
+     lado, pases, intercepciones, tiros y colisiones para no depender de revisar
+     eventos crudos.
    - Posesion por equipo: sumar frames de posesion a partir del robot poseedor
      y su equipo asignado.
    - QA automatico: clasificar cada corrida como `good`, `review` o `fail`

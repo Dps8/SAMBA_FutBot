@@ -225,9 +225,13 @@ Comandos principales:
 - `process-video`: pipeline completo por video.
 - `process-top-camera`: pipeline especializado para camara superior.
 - `field-analysis`: homografia de pixeles a coordenadas de cancha.
+- `calibration-check`: valida una homografia antes de reportar distancias en
+  metros o velocidades en `m/s`.
 - `qa-run`: evalua automaticamente si una corrida debe aceptarse o revisarse.
 - `track`: aplica tracker IoU.
 - `events`: genera eventos deportivos basicos.
+- `event-summary`: resume eventos en marcador candidato, goles por porteria,
+  pases, intercepciones, tiros y colisiones.
 - `metrics`: resume tracks.
 - `render-demo`: renderiza video lado a lado.
 - `render-calibration-frame`: extrae un frame con guias para ajustar esquinas.
@@ -349,6 +353,18 @@ con cuatro esquinas reales del campo en la imagen. Con eso, el sistema convierte
 la posicion de la pelota de pixeles a metros, calcula velocidad en `m/s`,
 distancia recorrida, una grilla de ocupacion por zonas y un PNG tactico con
 trayectoria sobre la cancha.
+
+Antes de defender metricas en metros, conviene validar esa calibracion:
+
+```powershell
+samba-futbot calibration-check `
+  --calibration config\top_camera_homography_template.yml `
+  --video "ruta\al\clip.mp4" `
+  --out "outputs\field_analysis\calibration-quality.json"
+```
+
+El reporte devuelve `status`, error de reproyeccion, area del poligono de campo
+en pixeles y puntos de calibracion que queden fuera del frame.
 
 El JSON de `field-analysis` tambien incluye candidatos reglamentarios:
 
@@ -568,12 +584,15 @@ Funciones:
 - posesion aproximada: robot mas cercano a pelota;
 - colisiones: robots cercanos;
 - tiros: pelota moviendose hacia margen de gol.
+- goles candidatos: pelota dentro de `goal_blue` o `goal_yellow`;
+- resumen deportivo: marcador candidato por equipo, goles por lado y conteo de
+  eventos relevantes.
 
 Estado actual:
 
 - funcional como base;
-- todavia necesita fortalecerse para entrega profesional;
-- debe combinarse con separacion aliados/rivales para pases/intercepciones.
+- integrado con separacion `blue/yellow` para pases, intercepciones y marcador
+  candidato.
 
 ### `src/samba_futbot/team.py`
 

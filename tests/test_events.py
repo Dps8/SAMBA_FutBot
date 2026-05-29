@@ -1,6 +1,6 @@
 import unittest
 
-from samba_futbot.events import detect_events, estimate_possession
+from samba_futbot.events import detect_events, estimate_possession, summarize_events
 from samba_futbot.types import Detection
 
 
@@ -49,6 +49,39 @@ class EventsTest(unittest.TestCase):
         self.assertEqual(len(goals), 1)
         self.assertEqual(goals[0].metadata["goal_side"], "blue")
         self.assertEqual(goals[0].metadata["scoring_team"], "yellow")
+
+    def test_summarize_events_reports_candidate_scoreboard(self):
+        events = [
+            {
+                "frame_index": 10,
+                "event_type": "goal_candidate",
+                "description": "Balon entra",
+                "confidence": 0.6,
+                "metadata": {"goal_side": "blue", "scoring_team": "yellow"},
+            },
+            {
+                "frame_index": 15,
+                "event_type": "pass",
+                "description": "Pase",
+                "confidence": 0.65,
+                "metadata": {},
+            },
+            {
+                "frame_index": 20,
+                "event_type": "interception",
+                "description": "Intercepcion",
+                "confidence": 0.7,
+                "metadata": {},
+            },
+        ]
+
+        summary = summarize_events(events)
+
+        self.assertEqual(summary["scoreboard"]["yellow"], 1)
+        self.assertEqual(summary["scoreboard"]["blue"], 0)
+        self.assertEqual(summary["goals"]["by_goal_side"]["blue"], 1)
+        self.assertEqual(summary["possession_changes"]["passes"], 1)
+        self.assertEqual(summary["possession_changes"]["interceptions"], 1)
 
 
 if __name__ == "__main__":

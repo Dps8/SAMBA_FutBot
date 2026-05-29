@@ -55,7 +55,7 @@ promoted blindly.
 Team-aware analysis is now part of the main pipeline. Robot detections are
 assigned to `blue` or `yellow` from the dominant color inside each tracked robot
 box, using the configurable palette in `config/default.yml`. Metrics include
-possession coverage and possession by team. Event detection can also report
+possession coverage, possession by team and longest possession streaks. Event detection can also report
 `goal_candidate` events when visual `goal_blue` or `goal_yellow` detections are
 available; metric goal claims should still be validated with calibrated
 homography before final presentation.
@@ -118,6 +118,9 @@ screen-space pixels. The default field template now follows the official
 FutBotMX field dimensions, `2.43 m x 1.82 m`, with official center-circle,
 penalty-area and goal markings. Final metric claims still require replacing the
 template image points with calibrated corners from each real top-camera setup.
+Calibration can now be checked separately with `samba-futbot calibration-check`;
+the check reports reprojection error, image polygon area and calibration points
+outside the frame so metric claims can be marked as calibrated or template-only.
 
 ## Artifact Types
 
@@ -125,7 +128,8 @@ template image points with calibrated corners from each real top-camera setup.
 - `outputs/tracks/`: IoU tracker output as JSONL.
 - `outputs/metrics/`: per-video summary metrics as JSON.
 - `outputs/events/`: event candidates such as possession changes, collisions
-  and shots.
+  and shots. Pipelines also write `*-event-summary.json` with candidate score,
+  goals by side, passes, interceptions, shots and collisions.
 - `outputs/field_analysis/`: homography metrics, trajectory CSV files and
   tactical field-map PNGs. It can also include robot projection CSVs,
   calibration-frame JPGs and Markdown run reports.

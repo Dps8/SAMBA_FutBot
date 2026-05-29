@@ -27,9 +27,30 @@ class ReportingTest(unittest.TestCase):
                             "max_speed_px_second": 45.6,
                         }
                     },
+                    "possession": {
+                        "coverage_ratio": 0.6,
+                        "by_team": {"blue": {"ratio": 1.0}},
+                        "longest_streak": {
+                            "team": "blue",
+                            "track_id": 4,
+                            "frames": 12,
+                            "seconds": 0.4,
+                        },
+                    },
                 },
             )
-            write_json(events, [{"event_type": "shot"}, {"event_type": "shot"}])
+            write_json(
+                events,
+                [
+                    {"event_type": "shot"},
+                    {"event_type": "shot"},
+                    {
+                        "frame_index": 2,
+                        "event_type": "goal_candidate",
+                        "metadata": {"goal_side": "blue", "scoring_team": "yellow"},
+                    },
+                ],
+            )
             write_json(
                 field,
                 {
@@ -56,6 +77,10 @@ class ReportingTest(unittest.TestCase):
 
         self.assertIn("# Clip QA", text)
         self.assertIn("Ball in-play coverage", text)
+        self.assertIn("Longest possession", text)
+        self.assertIn("blue #4", text)
+        self.assertIn("Candidate score", text)
+        self.assertIn("blue 0 - 1 yellow", text)
         self.assertIn("Goal-zone entries", text)
 
 

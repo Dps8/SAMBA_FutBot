@@ -174,6 +174,23 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.frame_index, 120)
 
+    def test_calibration_check_command_parses_optional_video(self):
+        args = build_parser().parse_args(
+            [
+                "calibration-check",
+                "--calibration",
+                "calibration.yml",
+                "--video",
+                "clip.mp4",
+                "--out",
+                "calibration-quality.json",
+            ]
+        )
+
+        self.assertEqual(args.calibration, "calibration.yml")
+        self.assertEqual(args.video, "clip.mp4")
+        self.assertEqual(args.out, "calibration-quality.json")
+
     def test_summarize_run_command_parses_optional_artifacts(self):
         args = build_parser().parse_args(
             [
@@ -215,6 +232,20 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.report_out, "qa.md")
         self.assertEqual(args.min_ball_coverage, 0.7)
         self.assertEqual(args.max_ball_jump_px_frame, 40.0)
+
+    def test_event_summary_command_parses_paths(self):
+        args = build_parser().parse_args(
+            [
+                "event-summary",
+                "--events",
+                "events.json",
+                "--out",
+                "summary.json",
+            ]
+        )
+
+        self.assertEqual(args.events, "events.json")
+        self.assertEqual(args.out, "summary.json")
 
 
 if __name__ == "__main__":

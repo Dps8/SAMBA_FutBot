@@ -151,6 +151,63 @@ def detect_events(
     return events
 
 
+def summarize_events(events: Iterable[Event | dict]) -> dict:
+    records = [_event_record(event) for event in events]
+    counts: dict[str, int] = {}
+    scoreboard: dict[str, int] = {}
+    goals_by_side: dict[str, int] = {}
+    first_frame: int | None = None
+    last_frame: int | None = None
+    timeline = []
+
+    for record in records:
+        event_type = str(record.get("event_type", "unknown"))
+        counts[event_type] = counts.get(event_type, 0) + 1
+        frame_index = int(record.get("frame_index", 0))
+        first_frame = frame_index if first_frame is None else min(first_frame, frame_index)
+        last_frame = frame_index if last_frame is None else max(last_frame, frame_index)
+        metadata = record.get("metadata", {}) if isinstance(record.get("metadata", {}), dict) else {}
+        if event_type == "goal_candidate":
+            scoring_team = str(metadata.get("scoring_team", "unknown"))
+            goal_side = str(metadata.get("goal_side", "unknown"))
+            scoreboard[scoring_team] = scoreboard.get(scoring_team, 0) + 1
+            goals_by_side[goal_side] = goals_by_side.get(goal_side, 0) + 1
+        if event_type in {"goal_candidate", "shot", "pass", "interception", "collision"}:
+            timeline.append(
+                {
+                    "frame_index": frame_index,
+                    "event_type": event_type,
+                    "description": record.get("description", ""),
+                    "confidence": float(record.get("confidence", 0.0)),
+                    "metadata": metadata,
+                }
+            )
+
+    return {
+        "total_events": len(records),
+        "first_frame": first_frame,
+        "last_frame": last_frame,
+        "counts": dict(sorted(counts.items())),
+        "scoreboard": {
+            team: scoreboard.get(team, 0)
+            for team in sorted(set(scoreboard) | {"blue", "yellow"})
+        },
+        "goals": {
+            "total": counts.get("goal_candidate", 0),
+            "by_goal_side": dict(sorted(goals_by_side.items())),
+        },
+        "possession_changes": {
+            "passes": counts.get("pass", 0),
+            "interceptions": counts.get("interception", 0),
+        },
+        "discipline": {
+            "collisions": counts.get("collision", 0),
+            "shots": counts.get("shot", 0),
+        },
+        "timeline": timeline[:25],
+    }
+
+
 def _ball_inside_goal(ball: Detection, goal: Detection) -> bool:
     x, y = ball.centroid
     x1, y1, x2, y2 = goal.box
@@ -173,3 +230,9 @@ def _scoring_team_for_goal(goal_side: str) -> str:
     if goal_side == "yellow":
         return "blue"
     return "unknown"
+
+
+def _event_record(event: Event | dict) -> dict:
+    if isinstance(event, Event):
+        return event.to_record()
+    return event

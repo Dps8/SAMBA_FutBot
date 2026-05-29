@@ -172,6 +172,8 @@ def _possession_summary(
         by_track[str(owner.track_id or "unknown")] += 1
 
     total_frames = len(possession)
+    streaks = _possession_streaks(possession, fps=fps)
+    longest_streak = max(streaks, key=lambda item: item["frames"], default=None)
     return {
         "frames_with_possession": possessed_frames,
         "coverage_ratio": possessed_frames / total_frames if total_frames else 0.0,
@@ -192,4 +194,77 @@ def _possession_summary(
             }
             for track_id, frames in sorted(by_track.items())
         },
+        "longest_streak": longest_streak,
+        "streaks": streaks[:20],
     }
+
+
+def _possession_streaks(
+    possession: dict[int, Detection | None],
+    *,
+    fps: float | None,
+) -> list[dict]:
+    streaks: list[dict] = []
+    current_owner: Detection | None = None
+    start_frame: int | None = None
+    previous_frame: int | None = None
+    for frame_index in sorted(possession):
+        owner = possession[frame_index]
+        same_owner = (
+            owner is not None
+            and current_owner is not None
+            and owner.track_id == current_owner.track_id
+            and frame_index == (previous_frame or frame_index - 1) + 1
+        )
+        if owner is None:
+            _append_possession_streak(
+                streaks,
+                current_owner,
+                start_frame,
+                previous_frame,
+                fps=fps,
+            )
+            current_owner = None
+            start_frame = None
+        elif not same_owner:
+            _append_possession_streak(
+                streaks,
+                current_owner,
+                start_frame,
+                previous_frame,
+                fps=fps,
+            )
+            current_owner = owner
+            start_frame = frame_index
+        previous_frame = frame_index
+    _append_possession_streak(
+        streaks,
+        current_owner,
+        start_frame,
+        previous_frame,
+        fps=fps,
+    )
+    return sorted(streaks, key=lambda item: item["frames"], reverse=True)
+
+
+def _append_possession_streak(
+    streaks: list[dict],
+    owner: Detection | None,
+    start_frame: int | None,
+    end_frame: int | None,
+    *,
+    fps: float | None,
+) -> None:
+    if owner is None or start_frame is None or end_frame is None or end_frame < start_frame:
+        return
+    frames = end_frame - start_frame + 1
+    streaks.append(
+        {
+            "track_id": owner.track_id,
+            "team": owner.team or "unknown",
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "frames": frames,
+            "seconds": frames / fps if fps and fps > 0 else None,
+        }
+    )

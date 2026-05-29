@@ -38,15 +38,19 @@ class MetricsTest(unittest.TestCase):
             Detection(1, "ball", 0.9, (12, 10, 16, 14), track_id=1),
             Detection(1, "robots", 0.9, (0, 0, 20, 20), track_id=2, team="blue"),
             Detection(2, "ball", 0.9, (80, 10, 84, 14), track_id=1),
+            Detection(2, "robots", 0.9, (70, 0, 90, 20), track_id=3, team="yellow"),
         ]
 
         summary = summarize_tracks(detections, fps=10, possession_radius_px=25)
 
         possession = summary["possession"]
-        self.assertEqual(possession["frames_with_possession"], 2)
-        self.assertAlmostEqual(possession["coverage_ratio"], 2 / 3)
+        self.assertEqual(possession["frames_with_possession"], 3)
+        self.assertAlmostEqual(possession["coverage_ratio"], 1.0)
         self.assertEqual(possession["by_team"]["blue"]["frames"], 2)
         self.assertAlmostEqual(possession["by_team"]["blue"]["seconds"], 0.2)
+        self.assertEqual(possession["by_team"]["yellow"]["frames"], 1)
+        self.assertEqual(possession["longest_streak"]["team"], "blue")
+        self.assertEqual(possession["longest_streak"]["frames"], 2)
 
 
 if __name__ == "__main__":
