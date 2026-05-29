@@ -36,6 +36,20 @@ class EventsTest(unittest.TestCase):
 
         self.assertFalse(any(event.event_type == "shot" for event in events))
 
+    def test_goal_candidate_reports_scoring_team(self):
+        detections = [
+            Detection(0, "field", 1.0, (0, 0, 100, 100), track_id=20),
+            Detection(0, "ball", 1.0, (12, 12, 18, 18), track_id=10),
+            Detection(0, "goal_blue", 1.0, (0, 0, 30, 30), track_id=30),
+        ]
+
+        events = detect_events(detections, possession_radius_px=30)
+        goals = [event for event in events if event.event_type == "goal_candidate"]
+
+        self.assertEqual(len(goals), 1)
+        self.assertEqual(goals[0].metadata["goal_side"], "blue")
+        self.assertEqual(goals[0].metadata["scoring_team"], "yellow")
+
 
 if __name__ == "__main__":
     unittest.main()

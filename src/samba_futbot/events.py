@@ -6,6 +6,8 @@ from typing import Iterable
 from .play_state import BALL_CLASSES, ROBOT_CLASSES, ball_in_play, distance, group_by_frame
 from .types import Detection, Event
 
+GOAL_CLASSES = {"goal", "goal_blue", "goal_yellow", "blue_goal", "yellow_goal"}
+
 
 def estimate_possession(
     detections: Iterable[Detection], possession_radius_px: float = 90.0
@@ -43,6 +45,7 @@ def detect_events(
     last_owner: Detection | None = None
     last_ball: Detection | None = None
     collision_cooldown: dict[tuple[int | None, int | None], int] = {}
+    goal_cooldown: dict[str, int] = {}
 
     for frame_index in sorted(frames):
         owner = possession.get(frame_index)
@@ -102,6 +105,29 @@ def detect_events(
             )
         ]
         ball = max(balls, key=lambda det: det.score) if balls else None
+        if ball:
+            for goal in [det for det in frames[frame_index] if det.class_name in GOAL_CLASSES]:
+                if not _ball_inside_goal(ball, goal):
+                    continue
+                side = _goal_side_from_class(goal.class_name)
+                if frame_index - goal_cooldown.get(side, -10_000) < 45:
+                    continue
+                goal_cooldown[side] = frame_index
+                scoring_team = _scoring_team_for_goal(side)
+                events.append(
+                    Event(
+                        frame_index=frame_index,
+                        event_type="goal_candidate",
+                        description=f"Balon entra en porteria {side}",
+                        confidence=0.6,
+                        actors=[ball.track_id or -1],
+                        metadata={
+                            "goal_side": side,
+                            "scoring_team": scoring_team,
+                            "goal_track_id": goal.track_id,
+                        },
+                    )
+                )
         if ball and last_ball and frame_width:
             dx = ball.centroid[0] - last_ball.centroid[0]
             dy = ball.centroid[1] - last_ball.centroid[1]
@@ -123,3 +149,27 @@ def detect_events(
             last_ball = ball
 
     return events
+
+
+def _ball_inside_goal(ball: Detection, goal: Detection) -> bool:
+    x, y = ball.centroid
+    x1, y1, x2, y2 = goal.box
+    margin = max(8.0, (ball.box[2] - ball.box[0]) * 0.5)
+    return (x1 - margin) <= x <= (x2 + margin) and (y1 - margin) <= y <= (y2 + margin)
+
+
+def _goal_side_from_class(class_name: str) -> str:
+    lowered = class_name.lower()
+    if "blue" in lowered:
+        return "blue"
+    if "yellow" in lowered:
+        return "yellow"
+    return "unknown"
+
+
+def _scoring_team_for_goal(goal_side: str) -> str:
+    if goal_side == "blue":
+        return "yellow"
+    if goal_side == "yellow":
+        return "blue"
+    return "unknown"

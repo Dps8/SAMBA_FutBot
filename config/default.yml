@@ -28,6 +28,44 @@ sam3:
       - green indoor soccer field
     robots:
       - robot
+    goal_blue:
+      - blue goal
+      - blue box
+      - blue color box
+      - blue goal box
+      - blue goal frame
+      - blue goal post
+      - blue rectangular goal
+      - blue structure on soccer field
+      - blue board
+      - blue boards
+      - blue table
+      - blue tables
+      - blue soccer goal
+      - blue robot soccer goal
+      - caja azul
+      - tabla azul
+      - tablas azules
+      - porteria azul
+    goal_yellow:
+      - yellow goal
+      - yellow box
+      - yellow color box
+      - yellow goal box
+      - yellow goal frame
+      - yellow goal post
+      - yellow rectangular goal
+      - yellow structure on soccer field
+      - yellow board
+      - yellow boards
+      - yellow table
+      - yellow tables
+      - yellow soccer goal
+      - yellow robot soccer goal
+      - caja amarilla
+      - tabla amarilla
+      - tablas amarillas
+      - porteria amarilla
     ball:
       - small orange ball
       - small orange ball on green soccer field
@@ -44,6 +82,60 @@ tracking:
     ball: 10
     robots: 40
     field: 1000
+
+team_detection:
+  enabled: true
+  max_color_distance: 170
+  palette:
+    blue: [55, 115, 220]
+    yellow: [230, 210, 60]
+
+goal_detection:
+  color_enabled: true
+  adaptive_color: true
+  adaptive_hsv_margin: [12, 45, 45]
+  adaptive_min_pixels: 120
+  spatial_gate_from_seeds: true
+  seed_spatial_margin_px: 90
+  require_seed_for_color: true
+  require_field_overlap: true
+  field_margin_px: 18
+  min_area: 180
+  max_area: 80000
+  min_extent: 0.18
+  max_per_frame_per_class: 1
+  broad_profiles:
+    goal_blue:
+      hsv_lower: [80, 35, 35]
+      hsv_upper: [145, 255, 255]
+    goal_yellow:
+      hsv_lower: [10, 35, 45]
+      hsv_upper: [55, 255, 255]
+  profiles:
+    goal_blue:
+      hsv_lower: [90, 70, 50]
+      hsv_upper: [135, 255, 255]
+    goal_yellow:
+      hsv_lower: [18, 70, 80]
+      hsv_upper: [42, 255, 255]
+
+ball_detection:
+  # The current rule ball is orange, but color is treated as a profile, not as
+  # the only detector. Top-camera processing fuses SAM3 ball prompts with this
+  # configurable color/shape cue before temporal refinement.
+  sam3_enabled: true
+  color_enabled: true
+  default_profile: orange
+  profiles:
+    orange:
+      hsv_lower: [0, 90, 90]
+      hsv_upper: [25, 255, 255]
+    white:
+      hsv_lower: [0, 0, 160]
+      hsv_upper: [180, 80, 255]
+    yellow:
+      hsv_lower: [20, 80, 90]
+      hsv_upper: [38, 255, 255]
 
 analysis:
   fps: 30

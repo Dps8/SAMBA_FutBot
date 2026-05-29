@@ -18,13 +18,19 @@ FutBotMX Vision por Computadora. El objetivo tecnico es:
 - renderizar videos demo con overlays y trails;
 - dejar resultados reproducibles en `outputs/`.
 
-La idea profesional diferenciadora es usar SAM 3 con contexto temporal:
+La idea profesional diferenciadora es usar SAM 3 con contexto temporal y fusion
+de fuentes:
 
 - prompts por clase;
-- ensamble de prompts para pelota naranja;
+- ensamble de prompts semanticos para pelota;
+- fuente cromatica/geométrica configurable para aprovechar el color oficial sin
+  depender solo de el;
 - ventanas ancladas en frames especificos;
 - clips fisicos por ventana para controlar VRAM;
 - tracking nativo de SAM 3 mas reparacion IoU;
+- clasificacion de equipos por color dominante de robots;
+- deteccion opcional de porterias azul/amarilla por SAM3 y fallback HSV para
+  candidatos visuales de gol;
 - post-procesamiento geometrico y metricas deportivas.
 
 ## 2. Estructura General
@@ -111,8 +117,54 @@ sam3:
 
 - `field`: prompt para detectar la cancha.
 - `robots`: prompt general para robots.
-- `ball`: ensamble de prompts. El prompt mas fuerte en pruebas fue
-  `small orange ball`; `pelota naranja` se deja como variante de contexto.
+- `ball`: ensamble de prompts. Incluye prompts generales como `small ball` y
+  prompts especificos como `small orange ball`; el color ayuda por el
+  reglamento actual, pero no es la unica fuente.
+- `goal_blue` y `goal_yellow`: prompts para porterias azul y amarilla. Incluyen
+  variantes como `blue box`, `yellow box`, `goal frame`, `goal post`,
+  `blue/yellow board`, `blue/yellow table`, `caja azul/amarilla` y
+  `tabla azul/amarilla` para que SAM3 tenga mas formas de anclar el objeto.
+
+```yaml
+goal_detection:
+  color_enabled: true
+  adaptive_color: true
+  adaptive_hsv_margin: [12, 45, 45]
+  spatial_gate_from_seeds: true
+  seed_spatial_margin_px: 90
+  require_seed_for_color: true
+  require_field_overlap: true
+  field_margin_px: 18
+  max_per_frame_per_class: 1
+  broad_profiles:
+    goal_blue:
+      hsv_lower: [80, 35, 35]
+      hsv_upper: [145, 255, 255]
+    goal_yellow:
+      hsv_lower: [10, 35, 45]
+      hsv_upper: [55, 255, 255]
+```
+
+- `color_enabled`: activa el respaldo por color para porterias.
+- `adaptive_color`: usa detecciones SAM3 de porteria como semillas; toma los
+  pixeles dentro de esas cajas y recalcula el HSV del video actual.
+- `adaptive_hsv_margin`: expansion aplicada al rango aprendido para tolerar
+  sombras, brillo y compresion.
+- `spatial_gate_from_seeds`: cuando existen cajas semilla de SAM3, el detector
+  por color solo acepta componentes cercanos a esas coordenadas. Esto evita que
+  una pulsera, cinta o playera azul/amarilla se confunda con porteria.
+- `seed_spatial_margin_px`: expansion alrededor de la caja semilla.
+- `require_seed_for_color`: si esta activo, no se aceptan detecciones
+  cromaticas de una porteria sin al menos una semilla SAM3 de esa misma clase.
+  Esto reduce falsos positivos cuando hay objetos externos con colores
+  parecidos.
+- `require_field_overlap`: exige que la porteria este sobre/tocando el campo
+  verde detectado. Si no hay `field` en ese frame, la porteria se descarta.
+- `max_per_frame_per_class`: se deja en `1` porque reglamentariamente solo debe
+  haber una porteria azul y una amarilla por imagen.
+- `broad_profiles`: rango amplio de "azules posibles" y "amarillos posibles".
+  No intenta ser exacto; solo filtra la muestra para que el rango final se
+  aprenda desde las coordenadas detectadas.
 
 ```yaml
 tracking:
@@ -167,12 +219,13 @@ Comandos principales:
 - `run-sam3-sweep`: corre SAM 3 por ventanas/anclas.
 - `merge-detections`: fusiona detecciones JSONL.
 - `filter-detections`: filtra falsos positivos geometricos.
-- `detect-orange-ball`: detector HSV/color/forma para pelota naranja.
+- `detect-orange-ball`: detector HSV/color/forma configurable para pelota.
 - `refine-ball`: elige una trayectoria temporal coherente entre multiples
   candidatos de pelota.
 - `process-video`: pipeline completo por video.
 - `process-top-camera`: pipeline especializado para camara superior.
 - `field-analysis`: homografia de pixeles a coordenadas de cancha.
+- `qa-run`: evalua automaticamente si una corrida debe aceptarse o revisarse.
 - `track`: aplica tracker IoU.
 - `events`: genera eventos deportivos basicos.
 - `metrics`: resume tracks.
@@ -191,8 +244,9 @@ Flujo importante: `process-video`.
 6. Aplica tracker IoU.
 7. Calcula metricas enriquecidas.
 8. Detecta eventos deportivos candidatos.
-9. Renderiza demo MP4.
-10. Imprime JSON con rutas y resumen.
+9. Genera QA automatico con cobertura, saltos y alertas reglamentarias.
+10. Renderiza demo MP4.
+11. Imprime JSON con rutas y resumen.
 
 Este comando existe para no tener que ejecutar manualmente 5 o 6 comandos por
 video.
@@ -210,19 +264,25 @@ samba-futbot process-video `
 
 Flujo importante: `process-top-camera`.
 
-Este es el flujo recomendado para clips de camara superior donde la pelota
-naranja es pequena y SAM 3 puede saltarsela en algunos frames. La estrategia es
-deliberadamente hibrida:
+Este es el flujo recomendado para clips de camara superior donde la pelota es
+pequena y SAM 3 puede saltarsela en algunos frames. La estrategia es
+deliberadamente hibrida y no depende de una sola senal:
 
 1. Lee metadata con `video_info`.
 2. Calcula anchors de campo/robots.
 3. Ejecuta SAM 3 solo para `field,robots`, donde el modelo es estable.
-4. Detecta la pelota naranja con HSV, area y circularidad.
-5. Usa las detecciones de robots para descartar manchas naranjas dentro de
+4. Si `--goals` esta activo, incluye `goal_blue` y `goal_yellow` en la pasada de
+   contexto.
+5. Ejecuta SAM 3 para `ball` con prompts semanticos.
+6. Detecta la pelota con un perfil HSV/forma configurable.
+7. Usa las detecciones de robots para descartar manchas de color dentro de
    robots.
-6. Fusiona campo/robots con candidatos de pelota.
-7. Aplica refinamiento temporal por programacion dinamica.
-8. Corre tracking, metricas, eventos y demo.
+8. Si SAM3 encontro porterias, recalibra el HSV de `goal_blue`/`goal_yellow`
+   desde esas cajas antes de ejecutar el detector por color.
+9. Fusiona campo/robots/porterias con candidatos de pelota de SAM3 y de color.
+10. Aplica refinamiento temporal por programacion dinamica.
+11. Asigna equipo a robots por color dominante y paleta `blue/yellow`.
+12. Corre tracking, metricas, eventos, QA automatico y demo.
 
 Ejemplo recomendado para un clip de 10 segundos de camara superior:
 
@@ -236,13 +296,27 @@ samba-futbot process-top-camera `
 
 Parametros clave de esa ruta:
 
-- `--orange-min-area 300`: descarta reflejos o marcas naranjas demasiado
+- `--orange-min-area 300`: descarta reflejos o marcas de color demasiado
   pequenas.
 - `--orange-max-per-frame 6`: conserva varios candidatos antes del refinamiento.
+- `--sam3-ball / --no-sam3-ball`: activa o desactiva la fuente SAM3 para pelota.
+- `--color-ball / --no-color-ball`: activa o desactiva la fuente de color/forma.
+- `--ball-color-profile`: usa un perfil HSV de `config/default.yml`, por
+  ejemplo `orange`, `white` o `yellow`.
+- `--ball-hsv-lower` y `--ball-hsv-upper`: permiten pasar limites manuales
+  `H,S,V` si el balon cambia de color o la luz cambia mucho.
+- `--goals / --no-goals`: activa o desactiva deteccion visual de porterias
+  `goal_blue` y `goal_yellow`.
+- `--color-goals / --no-color-goals`: activa o desactiva el fallback por color
+  para porterias azul/amarilla. Si `goal_detection.adaptive_color` esta activo,
+  ese fallback no depende solo del HSV fijo: aprende un rango del propio video
+  usando las cajas de `goal_blue`/`goal_yellow` que haya propuesto SAM3.
 - `--refine-max-jump-px 35`: penaliza saltos imposibles de la pelota entre
   frames.
 - `--refine-preferred-area 680`: sesga la seleccion hacia el tamano esperado de
   la pelota en esta vista.
+- `--qa / --no-qa`: activa o desactiva el reporte automatico de calidad. Por
+  defecto queda activo y escribe JSON/Markdown en `outputs\qa`.
 
 Si hay una calibracion de cancha, el mismo comando puede exportar coordenadas
 metricas, ocupacion por zonas y trayectoria CSV:
@@ -327,6 +401,26 @@ samba-futbot summarize-run `
   --demo "outputs\videos\clip-demo.mp4" `
   --out "outputs\field_analysis\clip-report.md"
 ```
+
+Para evaluar una corrida ya generada y decidir si pasa a `good` o
+`needs_review`:
+
+```powershell
+samba-futbot qa-run `
+  --metrics "outputs\metrics\clip-metrics.json" `
+  --events "outputs\events\clip-events.json" `
+  --field-analysis "outputs\field_analysis\clip-field-analysis.json" `
+  --out "outputs\qa\clip-qa.json" `
+  --report-out "outputs\qa\clip-qa.md"
+```
+
+El QA no reemplaza la revision visual. Sirve como filtro objetivo para comparar
+variantes: cobertura de pelota en juego, salto maximo de pelota en
+`px/frame`, cobertura de campo/robots, muestras de pelota fuera del campo,
+robots en area de penalizacion y conteo de eventos candidatos. En esta etapa
+una cobertura de pelota bajo `75%` se marca como `review`, porque en la camara
+superior los fallos de pelota se notan bastante aunque el resto del pipeline
+este estable.
 
 ### `src/samba_futbot/config.py`
 

@@ -5,6 +5,7 @@ import math
 from statistics import mean, pstdev
 from typing import Iterable
 
+from .events import estimate_possession
 from .play_state import BALL_CLASSES, in_play_balls
 from .types import Detection
 
@@ -66,6 +67,11 @@ def summarize_tracks(
     gaps = [_count_gaps(items) for items in by_track.values()]
     areas = [det.area for det in detections_list if det.area is not None and det.area > 0]
     motion = _motion_summary(detections_list, in_play_ball_dets=in_play_ball_dets, fps=fps)
+    possession = _possession_summary(
+        detections_list,
+        fps=fps,
+        possession_radius_px=possession_radius_px,
+    )
 
     return {
         "frames_observed": len(frames),
@@ -79,6 +85,7 @@ def summarize_tracks(
         "mask_area_mean": mean(areas) if areas else None,
         "mask_area_std": pstdev(areas) if len(areas) > 1 else 0.0,
         "motion": motion,
+        "possession": possession,
     }
 
 
@@ -143,4 +150,46 @@ def _speed_summary(speeds: list[float]) -> dict:
         "samples": len(speeds),
         "mean_speed_px_frame": mean(speeds) if speeds else 0.0,
         "max_speed_px_frame": max(speeds) if speeds else 0.0,
+    }
+
+
+def _possession_summary(
+    detections: list[Detection],
+    *,
+    fps: float | None,
+    possession_radius_px: float,
+) -> dict:
+    possession = estimate_possession(detections, possession_radius_px=possession_radius_px)
+    by_team: dict[str, int] = defaultdict(int)
+    by_track: dict[str, int] = defaultdict(int)
+    possessed_frames = 0
+    for owner in possession.values():
+        if owner is None:
+            continue
+        possessed_frames += 1
+        team = owner.team or "unknown"
+        by_team[team] += 1
+        by_track[str(owner.track_id or "unknown")] += 1
+
+    total_frames = len(possession)
+    return {
+        "frames_with_possession": possessed_frames,
+        "coverage_ratio": possessed_frames / total_frames if total_frames else 0.0,
+        "seconds": possessed_frames / fps if fps and fps > 0 else None,
+        "by_team": {
+            team: {
+                "frames": frames,
+                "seconds": frames / fps if fps and fps > 0 else None,
+                "ratio": frames / possessed_frames if possessed_frames else 0.0,
+            }
+            for team, frames in sorted(by_team.items())
+        },
+        "by_track": {
+            track_id: {
+                "frames": frames,
+                "seconds": frames / fps if fps and fps > 0 else None,
+                "ratio": frames / possessed_frames if possessed_frames else 0.0,
+            }
+            for track_id, frames in sorted(by_track.items())
+        },
     }

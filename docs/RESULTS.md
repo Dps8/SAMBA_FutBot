@@ -42,6 +42,47 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 `video-680` has an unrealistic max ball speed, which flags a likely ball-track
 jump. This is useful as an automatic QA signal for track fragmentation.
 
+Current pipelines now write an automatic QA report in addition to metrics and
+events. The QA score combines ball in-play coverage, maximum ball jump,
+field/robot coverage, homography out-of-bounds samples and rule candidates.
+For the reviewed top-camera smoke run
+`IMG_9938_f001799_10s-rules-smoke`, QA returns `review` with score `90`
+because ball coverage is `68.7%`, below the professional default of `75%`,
+even though the refined trajectory has no large jumps. This matches the visual
+observation that some overhead frames still miss the ball and should not be
+promoted blindly.
+
+Team-aware analysis is now part of the main pipeline. Robot detections are
+assigned to `blue` or `yellow` from the dominant color inside each tracked robot
+box, using the configurable palette in `config/default.yml`. Metrics include
+possession coverage and possession by team. Event detection can also report
+`goal_candidate` events when visual `goal_blue` or `goal_yellow` detections are
+available; metric goal claims should still be validated with calibrated
+homography before final presentation.
+
+SAM3 prompts alone did not reliably detect the blue/yellow goals in short smoke
+clips, so the pipeline now includes a configurable HSV fallback for
+`goal_blue` and `goal_yellow`. On the `video_429_side_smoke_2s` remote smoke,
+the fallback produced `240` colored-goal detections and the integrated pipeline
+tracked both goal classes through the rendered demo.
+
+The goal-color fallback is now adaptive. If SAM3 finds a `goal_blue` or
+`goal_yellow` box in a video, the pipeline samples HSV pixels inside that box
+and expands the learned range before running the color pass. This keeps the
+fixed YAML profiles as a fallback, while letting each video adjust to its own
+lighting, camera compression and actual goal material color.
+
+Visual QA also showed that pure color search can pick up similarly colored
+objects outside the field. The current adaptive path therefore uses SAM3 goal
+boxes as spatial gates: learned HSV detections must fall near the seed box when
+one exists. In conservative mode, a goal class also requires its own SAM3 seed
+before color detections of that class are accepted; this prevents a blue phone
+or background object from being promoted to `goal_blue`.
+
+The latest goal post-processing also applies two domain constraints from the
+tournament setup: at most one `goal_blue` and one `goal_yellow` are kept per
+frame, and accepted goals must overlap or touch the detected green field.
+
 ## Top Camera Notes
 
 `IMG_9866.MOV` is a short high-angle camera clip. The first run validated that
@@ -56,15 +97,16 @@ For `18abril/Camara_superior`, long videos are first sampled into contact
 sheets and promoted to short clips before running SAM3. Current reviewed outputs
 are organized under `outputs/review/2026-05-27/18abril_top_camera/` with
 `good`, `latest` and `needs_review` folders. The strongest current clip is
-`IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea`. The top-fusion path combines SAM3
-field/robot detections with an HSV orange-ball fallback, removes orange blobs
-inside robot boxes, rejects edge-touching and undersized ball candidates, refines
-the ball path with temporal dynamic programming and then computes in-play
-trajectories. This avoids relying only on text prompts when SAM3 misses the
-small orange ball from the overhead camera. The same route is now available as a
-single command through `samba-futbot process-top-camera`, so new overhead clips
-can reproduce the reviewed `top-fusion-hsv-v3-minarea` variant without chaining
-manual detector, merge, refine, tracking and rendering commands.
+`IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea`. The original top-fusion path
+combined SAM3 field/robot detections with an HSV orange-ball fallback, removed
+orange blobs inside robot boxes, rejected edge-touching and undersized ball
+candidates, refined the ball path with temporal dynamic programming and then
+computed in-play trajectories. The current default evolves this into
+`top-hybrid-ball-v1`: SAM3 also attempts semantic ball detection, while the
+HSV/color source stays as a configurable cue for the current orange ball. New
+overhead clips can therefore run SAM3 ball prompts, color/shape detection,
+merge, refinement, tracking and rendering through a single
+`samba-futbot process-top-camera` command.
 
 The next tactical layer is implemented as an optional homography analysis:
 `samba-futbot field-analysis` or `process-top-camera --field-calibration`.
@@ -87,6 +129,7 @@ template image points with calibrated corners from each real top-camera setup.
 - `outputs/field_analysis/`: homography metrics, trajectory CSV files and
   tactical field-map PNGs. It can also include robot projection CSVs,
   calibration-frame JPGs and Markdown run reports.
+- `outputs/qa/`: automatic run-quality JSON/Markdown reports.
 - `outputs/videos/`: rendered demo videos with tracking overlays.
 - `outputs/videos/qa_frames/`: QA screenshots sampled from rendered demos.
 

@@ -17,6 +17,9 @@ def detect_orange_ball(
     min_area: float = 80.0,
     max_area: float = 2200.0,
     min_circularity: float = 0.45,
+    hsv_lower: tuple[int, int, int] = (0, 90, 90),
+    hsv_upper: tuple[int, int, int] = (25, 255, 255),
+    color_profile: str = "orange",
     context_detections_path: str | Path | None = None,
     robot_margin_px: float = 8.0,
     border_margin_px: float = 4.0,
@@ -38,7 +41,7 @@ def detect_orange_ball(
             break
 
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, (0, 90, 90), (25, 255, 255))
+        mask = cv2.inRange(hsv, hsv_lower, hsv_upper)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -64,9 +67,13 @@ def detect_orange_ball(
                     class_name="ball",
                     score=min(0.99, 0.55 + circularity * 0.4),
                     box=(float(x), float(y), float(x + w), float(y + h)),
-                    prompt="hsv_orange_ball_fallback",
+                    prompt=f"hsv_{color_profile}_ball_fallback",
                     area=area,
-                    extra={"source": "color_ball", "circularity": circularity},
+                    extra={
+                        "source": "color_ball",
+                        "color_profile": color_profile,
+                        "circularity": circularity,
+                    },
                 )
             )
         frame_index += 1

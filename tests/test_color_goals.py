@@ -1,0 +1,248 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+import numpy as np
+
+from samba_futbot.color_goals import (
+    adapt_goal_color_profiles_from_detections,
+    detect_colored_goals,
+    enforce_goal_frame_constraints,
+)
+from samba_futbot.types import Detection
+from samba_futbot.video import require_cv2
+
+
+class ColorGoalsTest(unittest.TestCase):
+    def test_detect_colored_goals_finds_blue_and_yellow_regions(self):
+        cv2 = require_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            video = tmp_path / "goals.mp4"
+            out = tmp_path / "goals.jsonl"
+            writer = cv2.VideoWriter(
+                str(video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                5,
+                (120, 80),
+            )
+            frame = np.zeros((80, 120, 3), dtype=np.uint8)
+            frame[10:50, 8:24] = (255, 0, 0)  # blue in BGR
+            frame[20:60, 90:112] = (0, 255, 255)  # yellow in BGR
+            writer.write(frame)
+            writer.release()
+
+            detections = detect_colored_goals(
+                video,
+                out,
+                min_area=80,
+                max_area=10_000,
+                min_extent=0.2,
+            )
+
+        classes = {det.class_name for det in detections}
+        self.assertIn("goal_blue", classes)
+        self.assertIn("goal_yellow", classes)
+
+    def test_adaptive_goal_profile_learns_color_from_seed_detection(self):
+        cv2 = require_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            video = tmp_path / "adaptive_goal.mp4"
+            out = tmp_path / "adaptive_goal.jsonl"
+            writer = cv2.VideoWriter(
+                str(video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                5,
+                (120, 80),
+            )
+            frame = np.zeros((80, 120, 3), dtype=np.uint8)
+            shifted_yellow = cv2.cvtColor(
+                np.array([[[50, 210, 210]]], dtype=np.uint8),
+                cv2.COLOR_HSV2BGR,
+            )[0, 0]
+            frame[20:60, 76:110] = shifted_yellow
+            writer.write(frame)
+            writer.release()
+            seed = [
+                Detection(
+                    0,
+                    "goal_yellow",
+                    0.8,
+                    (72.0, 16.0, 114.0, 64.0),
+                    prompt="yellow box",
+                )
+            ]
+
+            profiles = adapt_goal_color_profiles_from_detections(
+                video,
+                seed,
+                min_pixels=50,
+            )
+            detections = detect_colored_goals(
+                video,
+                out,
+                seed_detections=seed,
+                adaptive_color=True,
+                adaptive_min_pixels=50,
+                min_area=80,
+                max_area=10_000,
+                min_extent=0.2,
+            )
+
+        self.assertGreaterEqual(profiles["goal_yellow"]["hsv_upper"][0], 50)
+        self.assertIn("goal_yellow", {det.class_name for det in detections})
+        self.assertTrue(any(det.extra.get("adaptive_color") for det in detections))
+
+    def test_adaptive_goal_profile_can_gate_detections_near_seed_box(self):
+        cv2 = require_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            video = tmp_path / "gated_goal.mp4"
+            out = tmp_path / "gated_goal.jsonl"
+            writer = cv2.VideoWriter(
+                str(video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                5,
+                (160, 80),
+            )
+            frame = np.zeros((80, 160, 3), dtype=np.uint8)
+            frame[20:60, 12:44] = (0, 255, 255)
+            frame[20:60, 116:148] = (0, 255, 255)
+            writer.write(frame)
+            writer.release()
+            seed = [
+                Detection(
+                    0,
+                    "goal_yellow",
+                    0.8,
+                    (10.0, 18.0, 46.0, 62.0),
+                    prompt="yellow box",
+                )
+            ]
+
+            detections = detect_colored_goals(
+                video,
+                out,
+                seed_detections=seed,
+                adaptive_color=True,
+                adaptive_min_pixels=50,
+                seed_spatial_margin_px=8,
+                min_area=80,
+                max_area=10_000,
+                min_extent=0.2,
+                max_per_frame_per_class=4,
+            )
+
+        yellow_boxes = [det.box for det in detections if det.class_name == "goal_yellow"]
+        self.assertEqual(len(yellow_boxes), 1)
+        self.assertLess(yellow_boxes[0][0], 60)
+
+    def test_color_goals_can_require_seed_for_class(self):
+        cv2 = require_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            video = tmp_path / "require_seed.mp4"
+            out = tmp_path / "require_seed.jsonl"
+            writer = cv2.VideoWriter(
+                str(video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                5,
+                (160, 80),
+            )
+            frame = np.zeros((80, 160, 3), dtype=np.uint8)
+            frame[20:60, 12:44] = (0, 255, 255)
+            frame[20:60, 116:148] = (255, 0, 0)
+            writer.write(frame)
+            writer.release()
+            seed = [
+                Detection(
+                    0,
+                    "goal_yellow",
+                    0.8,
+                    (10.0, 18.0, 46.0, 62.0),
+                    prompt="yellow box",
+                )
+            ]
+
+            detections = detect_colored_goals(
+                video,
+                out,
+                seed_detections=seed,
+                adaptive_color=True,
+                adaptive_min_pixels=50,
+                require_seed_for_color=True,
+                min_area=80,
+                max_area=10_000,
+                min_extent=0.2,
+                max_per_frame_per_class=4,
+            )
+
+        classes = {det.class_name for det in detections}
+        self.assertIn("goal_yellow", classes)
+        self.assertNotIn("goal_blue", classes)
+
+    def test_goal_constraints_keep_one_goal_per_color_on_field(self):
+        detections = [
+            Detection(0, "field", 0.9, (0, 0, 100, 100)),
+            Detection(0, "goal_yellow", 0.4, (10, 10, 30, 30), area=100),
+            Detection(0, "goal_yellow", 0.8, (40, 10, 60, 30), area=100),
+            Detection(0, "goal_blue", 0.9, (120, 10, 140, 30), area=100),
+            Detection(0, "robots", 0.7, (20, 50, 30, 70)),
+        ]
+
+        constrained = enforce_goal_frame_constraints(
+            detections,
+            field_detections=detections,
+            require_field_overlap=True,
+            max_per_frame_per_class=1,
+        )
+
+        goals = [det for det in constrained if det.class_name.startswith("goal_")]
+        self.assertEqual([(det.class_name, det.score) for det in goals], [("goal_yellow", 0.8)])
+        self.assertIn("robots", {det.class_name for det in constrained})
+
+    def test_detect_colored_goals_can_require_field_overlap(self):
+        cv2 = require_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            video = tmp_path / "field_overlap.mp4"
+            out = tmp_path / "field_overlap.jsonl"
+            writer = cv2.VideoWriter(
+                str(video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                5,
+                (160, 80),
+            )
+            frame = np.zeros((80, 160, 3), dtype=np.uint8)
+            frame[20:60, 12:44] = (0, 255, 255)
+            frame[20:60, 116:148] = (0, 255, 255)
+            writer.write(frame)
+            writer.release()
+            seeds = [
+                Detection(0, "field", 0.9, (0, 0, 80, 80)),
+                Detection(0, "goal_yellow", 0.8, (10, 18, 46, 62), prompt="yellow board"),
+            ]
+
+            detections = detect_colored_goals(
+                video,
+                out,
+                seed_detections=seeds,
+                adaptive_color=True,
+                adaptive_min_pixels=50,
+                require_seed_for_color=True,
+                require_field_overlap=True,
+                field_margin_px=0,
+                min_area=80,
+                max_area=10_000,
+                min_extent=0.2,
+                max_per_frame_per_class=1,
+            )
+
+        yellow_boxes = [det.box for det in detections if det.class_name == "goal_yellow"]
+        self.assertEqual(len(yellow_boxes), 1)
+        self.assertLess(yellow_boxes[0][0], 80)
+
+
+if __name__ == "__main__":
+    unittest.main()

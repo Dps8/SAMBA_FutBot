@@ -34,6 +34,7 @@ def _metrics_section(path: str | Path) -> list[str]:
     metrics = read_json(path)
     ball = metrics.get("classes", {}).get("ball", {})
     motion = metrics.get("motion", {}).get("ball", {})
+    possession = metrics.get("possession", {})
     return [
         "## Tracking Metrics",
         "",
@@ -41,6 +42,8 @@ def _metrics_section(path: str | Path) -> list[str]:
         f"- Detections: `{metrics.get('detections', 0)}`",
         f"- Tracks: `{metrics.get('tracks', 0)}`",
         f"- Ball in-play coverage: `{ball.get('in_play_coverage_ratio', 0.0):.1%}`",
+        f"- Possession coverage: `{possession.get('coverage_ratio', 0.0):.1%}`",
+        f"- Possession by team: `{_format_possession_by_team(possession)}`",
         f"- Mean ball speed: `{motion.get('mean_speed_px_second', 0.0):.1f} px/s`",
         f"- Max ball speed: `{motion.get('max_speed_px_second', 0.0):.1f} px/s`",
         "",
@@ -58,6 +61,15 @@ def _events_section(path: str | Path) -> list[str]:
         lines.append(f"- `{event_type}`: `{count}`")
     lines.append("")
     return lines
+
+
+def _format_possession_by_team(possession: dict) -> str:
+    by_team = possession.get("by_team", {})
+    if not by_team:
+        return "none"
+    return ", ".join(
+        f"{team}: {values.get('ratio', 0.0):.1%}" for team, values in sorted(by_team.items())
+    )
 
 
 def _field_section(path: str | Path, *, field_map_path: str | Path | None) -> list[str]:

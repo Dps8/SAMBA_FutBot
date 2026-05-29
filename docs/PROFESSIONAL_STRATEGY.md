@@ -17,9 +17,20 @@ ejecutar un notebook.
 2. **Prompts y refinamiento**
    - Campo: `soccer field`, `green playing field`.
    - Robots: `small wheeled soccer robot`, `robot soccer player`.
-   - Balon: `orange soccer ball`, `small ball`.
-   - Usar prompts negativos y filtros geometricos si SAM 3 confunde publico,
-     logos, reflejos o bordes.
+   - Balon: `small ball`, `golf ball`, `ball on green field`, `ball near robot`
+     y la variante especifica del reglamento actual `small orange ball`.
+   - Fusionar SAM3 pelota con una fuente cromatica/geométrica configurable. Hoy
+     el perfil por defecto es `orange`, pero el pipeline puede cambiar a
+     `white`, `yellow` o rangos HSV manuales sin reescribir codigo.
+   - Para porterias, usar prompts amplios como `blue box`, `yellow box`,
+     `goal frame`, `goal post`, `caja azul` y `caja amarilla`; si SAM3 encuentra
+     una caja, recalibrar el HSV desde esas coordenadas para no depender de un
+     color hardcodeado.
+   - Agregar variantes de dominio como `blue/yellow board`, `blue/yellow table`
+     y `tabla azul/amarilla`, y aplicar reglas fisicas: una sola porteria por
+     color en cada frame y siempre asociada al campo verde.
+   - Usar filtros geometricos y contexto de campo/robots si SAM 3 o el detector
+     de color confunden logos, reflejos, bordes o piezas del robot.
 
 3. **Tracking**
    - Preferir IDs nativos de SAM 3 video.
@@ -29,6 +40,8 @@ ejecutar un notebook.
 4. **Separacion de equipos**
    - Clasificar robots por color dominante dentro de la mascara.
    - Ajustar paletas por video en `config/default.yml`.
+   - La primera integracion usa paleta RGB `blue/yellow` y votacion por track
+     para asignar `team` a cada robot antes de calcular eventos.
 
 5. **Analisis de juego**
    - Posesion: robot mas cercano al balon en coordenadas de cancha o pixeles.
@@ -42,6 +55,14 @@ ejecutar un notebook.
      para que las metricas sean defendibles.
    - Candidatos reglamentarios: entradas a porteria, balon fuera de campo y
      muestras de robots en area de penalizacion.
+   - Goles visuales: si SAM3 detecta `goal_blue` o `goal_yellow`, generar
+     candidatos de gol cuando la pelota entra en la caja de porteria. Para
+     resultados finales se prefiere homografia y validacion manual.
+   - Posesion por equipo: sumar frames de posesion a partir del robot poseedor
+     y su equipo asignado.
+   - QA automatico: clasificar cada corrida como `good`, `review` o `fail`
+     usando cobertura de pelota, saltos imposibles, cobertura de campo/robots y
+     senales reglamentarias.
    - Reporte reproducible: generar Markdown por corrida para convertir metricas
      tecnicas en narrativa de evaluacion.
    - Pase: cambio de poseedor dentro del mismo equipo.
@@ -68,5 +89,9 @@ ejecutar un notebook.
 
 - Comparar `facebook/sam3` contra `facebook/sam3.1` en el mismo clip.
 - Probar ensambles de prompts contra un prompt unico.
+- Comparar pelota por SAM3, pelota por color y fusion SAM3+color en la misma
+  ventana de camara superior.
 - Comparar tracking nativo contra tracking nativo mas reparacion IoU.
 - Medir estabilidad de area, fragmentacion y porcentaje de frames con balon.
+- Usar `qa-run` para ordenar variantes por score antes de revisar manualmente
+  los videos renderizados.

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .events import estimate_possession
 from .io_utils import read_detections
 from .types import Detection
 from .video import require_cv2
@@ -15,12 +16,18 @@ COLORS = {
     "robots": (255, 180, 50),
     "robot": (255, 180, 50),
     "ball": (40, 140, 255),
+    "goal_blue": (40, 90, 255),
+    "goal_yellow": (255, 220, 50),
     "robot_allied": (255, 80, 80),
     "robot_rival": (80, 180, 255),
 }
 
 
 def class_color(class_name: str, team: str | None = None) -> tuple[int, int, int]:
+    if team == "blue":
+        return (60, 110, 255)
+    if team == "yellow":
+        return (255, 220, 50)
     if team == "allied":
         return (255, 80, 80)
     if team == "rival":
@@ -41,6 +48,7 @@ def render_demo_video(
     by_frame: dict[int, list[Detection]] = defaultdict(list)
     for det in detections:
         by_frame[det.frame_index].append(det)
+    possession = estimate_possession(detections)
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -75,7 +83,7 @@ def render_demo_video(
         for det in by_frame.get(frame_index, []):
             _draw_detection(cv2, annotated, det, trails)
         _draw_header(cv2, frame, "Original")
-        _draw_header(cv2, annotated, "SAMBA FutBot: segmentacion + tracking")
+        _draw_header(cv2, annotated, _frame_header(frame_index, possession.get(frame_index)))
         writer.write(np.hstack([frame, annotated]))
         frame_index += 1
 
@@ -109,3 +117,10 @@ def _draw_detection(cv2, frame: np.ndarray, det: Detection, trails) -> None:
 def _draw_header(cv2, frame: np.ndarray, text: str) -> None:
     cv2.rectangle(frame, (0, 0), (frame.shape[1], 34), (0, 0, 0), -1)
     cv2.putText(frame, text, (12, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+
+def _frame_header(frame_index: int, owner: Detection | None) -> str:
+    if owner is None:
+        return "SAMBA FutBot: tracking | possession: none"
+    team = owner.team or "unknown"
+    return f"SAMBA FutBot: tracking | possession: {team} #{owner.track_id} | frame {frame_index}"
