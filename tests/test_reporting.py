@@ -13,6 +13,7 @@ class ReportingTest(unittest.TestCase):
             metrics = tmp_path / "metrics.json"
             events = tmp_path / "events.json"
             field = tmp_path / "field.json"
+            qa = tmp_path / "qa.json"
             report = tmp_path / "report.md"
             write_json(
                 metrics,
@@ -30,6 +31,11 @@ class ReportingTest(unittest.TestCase):
                     "possession": {
                         "coverage_ratio": 0.6,
                         "by_team": {"blue": {"ratio": 1.0}},
+                        "dominance": {
+                            "team": "blue",
+                            "ratio": 1.0,
+                            "margin_ratio": 1.0,
+                        },
                         "longest_streak": {
                             "team": "blue",
                             "track_id": 4,
@@ -42,8 +48,14 @@ class ReportingTest(unittest.TestCase):
             write_json(
                 events,
                 [
-                    {"event_type": "shot"},
-                    {"event_type": "shot"},
+                    {
+                        "event_type": "shot",
+                        "metadata": {"shooting_team": "blue", "target_side": "left"},
+                    },
+                    {
+                        "event_type": "shot",
+                        "metadata": {"shooting_team": "yellow", "target_side": "right"},
+                    },
                     {
                         "frame_index": 2,
                         "event_type": "goal_candidate",
@@ -62,7 +74,38 @@ class ReportingTest(unittest.TestCase):
                         "max_speed_m_s": 0.8,
                         "goal_zone_entries": 1,
                     },
-                    "robot_summary": {"penalty_area_samples": 2},
+                    "robot_summary": {
+                        "penalty_area_samples": 2,
+                        "samples_by_team": {"blue": 3, "yellow": 2},
+                        "phase_samples_by_team": {
+                            "blue": {"attacking": 2, "middle": 1},
+                            "yellow": {"defensive": 2},
+                        },
+                        "attacking_pressure_by_team": {"blue": 0.67, "yellow": 0.0},
+                    },
+                    "robot_zone_control": [
+                        {"zone": "r1c1", "leader": "blue", "leader_ratio": 0.75},
+                        {"zone": "r1c2", "leader": "yellow", "leader_ratio": 1.0},
+                    ],
+                },
+            )
+            write_json(
+                qa,
+                {
+                    "status": "review",
+                    "quality_score": 90,
+                    "summary": {
+                        "ball_in_play_coverage_ratio": 0.7,
+                        "max_ball_speed_px_frame": 12.0,
+                        "unknown_team_ratio": 0.1,
+                    },
+                    "issues": [
+                        {
+                            "severity": "warning",
+                            "code": "low_ball_coverage",
+                            "message": "Ball coverage is low.",
+                        }
+                    ],
                 },
             )
 
@@ -72,16 +115,26 @@ class ReportingTest(unittest.TestCase):
                 metrics_path=metrics,
                 events_path=events,
                 field_analysis_path=field,
+                qa_path=qa,
             )
             text = out.read_text(encoding="utf-8")
 
         self.assertIn("# Clip QA", text)
         self.assertIn("Ball in-play coverage", text)
         self.assertIn("Longest possession", text)
+        self.assertIn("Possession dominance", text)
         self.assertIn("blue #4", text)
         self.assertIn("Candidate score", text)
         self.assertIn("blue 0 - 1 yellow", text)
+        self.assertIn("Shots by team", text)
         self.assertIn("Goal-zone entries", text)
+        self.assertIn("Robot samples by team", text)
+        self.assertIn("Robot phases by team", text)
+        self.assertIn("Attacking pressure by team", text)
+        self.assertIn("Territorial control by leader", text)
+        self.assertIn("Run QA", text)
+        self.assertIn("Quality score", text)
+        self.assertIn("low_ball_coverage", text)
 
 
 if __name__ == "__main__":

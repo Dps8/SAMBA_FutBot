@@ -1,9 +1,18 @@
+import json
 import unittest
+from argparse import Namespace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from samba_futbot.cli import (
     _context_classes,
     _frame_anchors,
+    _git_snapshot,
+    _jsonable,
     _resolve_ball_color_profile,
+    _runtime_snapshot,
+    _source_fingerprint,
+    _write_pipeline_manifest,
     build_parser,
 )
 
@@ -50,9 +59,38 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.ball_hsv_lower, "0,0,170")
 
     def test_process_top_camera_can_disable_qa(self):
-        args = build_parser().parse_args(["process-top-camera", "--video", "clip.mp4", "--no-qa"])
+        args = build_parser().parse_args(
+            [
+                "process-top-camera",
+                "--video",
+                "clip.mp4",
+                "--no-qa",
+                "--run-report-out",
+                "report.md",
+                "--run-manifest-out",
+                "manifest.json",
+            ]
+        )
 
         self.assertFalse(args.qa)
+        self.assertEqual(args.run_report_out, "report.md")
+        self.assertEqual(args.run_manifest_out, "manifest.json")
+
+    def test_process_video_accepts_run_report_out(self):
+        args = build_parser().parse_args(
+            [
+                "process-video",
+                "--video",
+                "clip.mp4",
+                "--run-report-out",
+                "report.md",
+                "--run-manifest-out",
+                "manifest.json",
+            ]
+        )
+
+        self.assertEqual(args.run_report_out, "report.md")
+        self.assertEqual(args.run_manifest_out, "manifest.json")
 
     def test_context_classes_can_disable_goals(self):
         parser = build_parser()
@@ -82,6 +120,77 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.color_profile, "white")
         self.assertEqual(args.hsv_lower, "0,0,160")
+
+    def test_jsonable_serializes_private_cli_values(self):
+        value = _jsonable({"path": __file__, "func": self.test_jsonable_serializes_private_cli_values})
+
+        self.assertIn("path", value)
+        self.assertIsInstance(value["func"], str)
+
+    def test_git_snapshot_reports_current_repo(self):
+        snapshot = _git_snapshot(Path(__file__).resolve().parents[1])
+
+        if not snapshot["available"]:
+            self.skipTest("Current test tree is not inside a Git checkout.")
+        self.assertTrue(snapshot["available"])
+        self.assertIn("branch", snapshot)
+        self.assertIn("commit", snapshot)
+        self.assertIn("dirty", snapshot)
+        self.assertIn("changed_files", snapshot)
+
+    def test_git_snapshot_handles_non_repo_paths(self):
+        with TemporaryDirectory() as temp_dir:
+            snapshot = _git_snapshot(Path(temp_dir))
+
+        self.assertFalse(snapshot["available"])
+        self.assertIn("error", snapshot)
+
+    def test_runtime_snapshot_reports_python_environment(self):
+        snapshot = _runtime_snapshot()
+
+        self.assertIn("python", snapshot)
+        self.assertIn("python_executable", snapshot)
+        self.assertIn("platform", snapshot)
+
+    def test_source_fingerprint_hashes_pipeline_files(self):
+        fingerprint = _source_fingerprint(Path(__file__).resolve().parents[1])
+
+        self.assertEqual(fingerprint["algorithm"], "sha256")
+        self.assertEqual(len(fingerprint["digest"]), 64)
+        self.assertGreater(fingerprint["files_hashed"], 0)
+        self.assertIn("src/samba_futbot/cli.py", fingerprint["paths"])
+
+    def test_write_pipeline_manifest_includes_reproducibility_context(self):
+        with TemporaryDirectory() as temp_dir:
+            results_dir = Path(temp_dir)
+            args = Namespace(
+                run_manifest_out=str(results_dir / "manifest.json"),
+                command="process-top-camera",
+                video="clip.mp4",
+                config="config/default.yml",
+                suffix="demo",
+            )
+            manifest_out = _write_pipeline_manifest(
+                args,
+                results_dir=results_dir,
+                stem="clip",
+                artifacts={"tracks": results_dir / "tracks.jsonl"},
+                metrics_summary={"frames_observed": 1, "detections": {}, "tracks": {}},
+                event_summary={"events": 0},
+                field_analysis_summary=None,
+                qa_status="review",
+            )
+            manifest = json.loads(manifest_out.read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["command_name"], "process-top-camera")
+        self.assertEqual(manifest["qa_status"], "review")
+        self.assertIn("generated_at_utc", manifest)
+        self.assertIn("command_argv", manifest)
+        self.assertIn("git", manifest)
+        self.assertIn("runtime", manifest)
+        self.assertIn("source_fingerprint", manifest)
+        self.assertEqual(manifest["source_fingerprint"]["algorithm"], "sha256")
+        self.assertEqual(manifest["artifacts"]["tracks"], str(results_dir / "tracks.jsonl"))
 
     def test_resolve_ball_color_profile_uses_configured_hsv(self):
         profile, lower, upper = _resolve_ball_color_profile(
@@ -123,10 +232,16 @@ class CliHelpersTest(unittest.TestCase):
                 "tracks.jsonl",
                 "--calibration",
                 "calibration.yml",
+                "--video",
+                "clip.mp4",
+                "--config",
+                "config/default.yml",
                 "--out",
                 "analysis.json",
                 "--robot-csv-out",
                 "robots.csv",
+                "--zone-control-csv-out",
+                "zone-control.csv",
                 "--map-out",
                 "field-map.png",
                 "--robot-anchor",
@@ -140,8 +255,11 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.grid_cols, 8)
         self.assertEqual(args.grid_rows, 5)
+        self.assertEqual(args.video, "clip.mp4")
+        self.assertEqual(args.config, "config/default.yml")
         self.assertEqual(args.map_out, "field-map.png")
         self.assertEqual(args.robot_csv_out, "robots.csv")
+        self.assertEqual(args.zone_control_csv_out, "zone-control.csv")
         self.assertEqual(args.robot_anchor, "centroid")
 
     def test_render_field_map_command_parses_width(self):
@@ -203,11 +321,14 @@ class CliHelpersTest(unittest.TestCase):
                 "events.json",
                 "--field-analysis",
                 "field.json",
+                "--qa",
+                "qa.json",
             ]
         )
 
         self.assertEqual(args.metrics, "metrics.json")
         self.assertEqual(args.field_analysis, "field.json")
+        self.assertEqual(args.qa, "qa.json")
 
     def test_qa_run_command_parses_thresholds(self):
         args = build_parser().parse_args(
@@ -225,6 +346,8 @@ class CliHelpersTest(unittest.TestCase):
                 "0.7",
                 "--max-ball-jump-px-frame",
                 "40",
+                "--max-unknown-team-ratio",
+                "0.4",
             ]
         )
 
@@ -232,6 +355,24 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.report_out, "qa.md")
         self.assertEqual(args.min_ball_coverage, 0.7)
         self.assertEqual(args.max_ball_jump_px_frame, 40.0)
+        self.assertEqual(args.max_unknown_team_ratio, 0.4)
+
+    def test_qa_index_command_parses_paths(self):
+        args = build_parser().parse_args(
+            [
+                "qa-index",
+                "--root",
+                "outputs/review",
+                "--out",
+                "qa-index.json",
+                "--report-out",
+                "qa-index.md",
+            ]
+        )
+
+        self.assertEqual(args.root, "outputs/review")
+        self.assertEqual(args.out, "qa-index.json")
+        self.assertEqual(args.report_out, "qa-index.md")
 
     def test_event_summary_command_parses_paths(self):
         args = build_parser().parse_args(
@@ -246,6 +387,23 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.events, "events.json")
         self.assertEqual(args.out, "summary.json")
+
+    def test_render_demo_command_accepts_events_overlay(self):
+        args = build_parser().parse_args(
+            [
+                "render-demo",
+                "--video",
+                "clip.mp4",
+                "--tracks",
+                "tracks.jsonl",
+                "--events",
+                "events.json",
+                "--out",
+                "demo.mp4",
+            ]
+        )
+
+        self.assertEqual(args.events, "events.json")
 
 
 if __name__ == "__main__":

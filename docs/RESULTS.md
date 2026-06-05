@@ -45,6 +45,22 @@ jump. This is useful as an automatic QA signal for track fragmentation.
 Current pipelines now write an automatic QA report in addition to metrics and
 events. The QA score combines ball in-play coverage, maximum ball jump,
 field/robot coverage, homography out-of-bounds samples and rule candidates.
+The `qa-index` command can now scan a results folder and rank QA JSON reports by
+status and score, which helps triage many prompt/model variants before manual
+video review. Its Markdown table also exposes the unknown-team ratio so weak
+team-color assignments are visible before opening the videos.
+QA also checks the ratio of robot samples that remain `unknown` after team
+assignment, so possession-by-team and tactical claims are flagged when color
+classification is not reliable enough.
+Run Markdown reports can now include the QA JSON directly, so a single report
+contains tracking metrics, events, field analysis and quality gates.
+Full processing commands also write that integrated report by default under
+`outputs/reports`, reducing the number of manual post-processing commands needed
+for reproducible review.
+They also write a JSON run manifest with the invoked command, normalized
+arguments, UTC timestamp, runtime, local Git branch/commit/dirty status, a
+SHA256 fingerprint of the local code/config files, artifact paths and key
+summaries for auditability.
 For the reviewed top-camera smoke run
 `IMG_9938_f001799_10s-rules-smoke`, QA returns `review` with score `90`
 because ball coverage is `68.7%`, below the professional default of `75%`,
@@ -53,12 +69,23 @@ observation that some overhead frames still miss the ball and should not be
 promoted blindly.
 
 Team-aware analysis is now part of the main pipeline. Robot detections are
-assigned to `blue` or `yellow` from the dominant color inside each tracked robot
-box, using the configurable palette in `config/default.yml`. Metrics include
-possession coverage, possession by team and longest possession streaks. Event detection can also report
+assigned to `blue` or `yellow` from color evidence inside each tracked robot
+box, using the configurable palette in `config/default.yml`. The sampler votes
+with pixels close to the blue/yellow palettes and ignores low-saturation or
+dark pixels, reducing contamination from field/background inside wide boxes.
+Metrics include possession coverage, possession by team and longest possession streaks. Event detection can also report
 `goal_candidate` events when visual `goal_blue` or `goal_yellow` detections are
 available; metric goal claims should still be validated with calibrated
 homography before final presentation.
+Possession metrics also expose a dominant team with frame and ratio margin,
+which gives a compact game-control signal for reports.
+Shot candidates now require the ball to move toward the left/right goal side,
+instead of only being fast near a goal margin, and include estimated target side
+and shooting team metadata. Event summaries also aggregate shots by team and
+target side.
+Rendered demo videos can now read `events.json` and keep the latest event in
+the overlay header for a short window, turning the visual output into a more
+narrative review artifact.
 
 SAM3 prompts alone did not reliably detect the blue/yellow goals in short smoke
 clips, so the pipeline now includes a configurable HSV fallback for
@@ -121,6 +148,18 @@ template image points with calibrated corners from each real top-camera setup.
 Calibration can now be checked separately with `samba-futbot calibration-check`;
 the check reports reprojection error, image polygon area and calibration points
 outside the frame so metric claims can be marked as calibrated or template-only.
+Robot field projection also reports samples by team, zone samples by team,
+penalty-area samples by team and defensive/middle/attacking thirds relative to
+each team's defended side. It also derives an attacking-pressure ratio per team,
+the share of robot samples in that team's offensive third. The same analysis now
+exports territorial control by grid zone: leader team, margin and leader ratio.
+This control layer is also exported as CSV for spreadsheet review.
+Standalone `field-analysis` can also receive the original video and color/team
+configuration, allowing old track files without `team` metadata to be
+reclassified before metric projection.
+The tactical field-map PNG now plots robot samples and territorial-control
+cells over the calibrated pitch with team colors, so the same artifact shows
+ball trajectory, ball-zone occupancy and blue/yellow robot positioning.
 
 ## Artifact Types
 

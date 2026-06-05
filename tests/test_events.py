@@ -36,6 +36,36 @@ class EventsTest(unittest.TestCase):
 
         self.assertFalse(any(event.event_type == "shot" for event in events))
 
+    def test_shot_requires_motion_toward_goal_side(self):
+        toward_goal = [
+            Detection(0, "field", 1.0, (0, 0, 100, 50)),
+            Detection(1, "field", 1.0, (0, 0, 100, 50)),
+            Detection(0, "ball", 1.0, (82, 10, 88, 16), track_id=10),
+            Detection(1, "ball", 1.0, (93, 10, 99, 16), track_id=10),
+        ]
+        away_from_goal = [
+            Detection(0, "field", 1.0, (0, 0, 100, 50)),
+            Detection(1, "field", 1.0, (0, 0, 100, 50)),
+            Detection(0, "ball", 1.0, (93, 10, 99, 16), track_id=10),
+            Detection(1, "ball", 1.0, (82, 10, 88, 16), track_id=10),
+        ]
+
+        shots = [
+            event
+            for event in detect_events(toward_goal, frame_width=100, goal_x_margin_ratio=0.1)
+            if event.event_type == "shot"
+        ]
+        away_shots = [
+            event
+            for event in detect_events(away_from_goal, frame_width=100, goal_x_margin_ratio=0.1)
+            if event.event_type == "shot"
+        ]
+
+        self.assertEqual(len(shots), 1)
+        self.assertEqual(shots[0].metadata["target_side"], "right")
+        self.assertEqual(shots[0].metadata["shooting_team"], "yellow")
+        self.assertEqual(away_shots, [])
+
     def test_goal_candidate_reports_scoring_team(self):
         detections = [
             Detection(0, "field", 1.0, (0, 0, 100, 100), track_id=20),
@@ -73,6 +103,13 @@ class EventsTest(unittest.TestCase):
                 "confidence": 0.7,
                 "metadata": {},
             },
+            {
+                "frame_index": 25,
+                "event_type": "shot",
+                "description": "Tiro",
+                "confidence": 0.5,
+                "metadata": {"shooting_team": "blue", "target_side": "left"},
+            },
         ]
 
         summary = summarize_events(events)
@@ -80,6 +117,8 @@ class EventsTest(unittest.TestCase):
         self.assertEqual(summary["scoreboard"]["yellow"], 1)
         self.assertEqual(summary["scoreboard"]["blue"], 0)
         self.assertEqual(summary["goals"]["by_goal_side"]["blue"], 1)
+        self.assertEqual(summary["shots"]["by_team"]["blue"], 1)
+        self.assertEqual(summary["shots"]["by_target_side"]["left"], 1)
         self.assertEqual(summary["possession_changes"]["passes"], 1)
         self.assertEqual(summary["possession_changes"]["interceptions"], 1)
 

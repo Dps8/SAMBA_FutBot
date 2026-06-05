@@ -86,6 +86,9 @@ tracking:
 team_detection:
   enabled: true
   max_color_distance: 170
+  min_saturation: 45
+  min_value: 40
+  min_pixels: 8
   palette:
     blue: [55, 115, 220]
     yellow: [230, 210, 60]

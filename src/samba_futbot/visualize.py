@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from .events import estimate_possession
-from .io_utils import read_detections
+from .io_utils import read_detections, read_json
 from .types import Detection
 from .video import require_cv2
 
@@ -40,6 +40,7 @@ def render_demo_video(
     tracks_path: str | Path,
     out_path: str | Path,
     *,
+    events_path: str | Path | None = None,
     max_seconds: float | None = 120,
     trail_length: int = 45,
 ) -> Path:
@@ -49,6 +50,7 @@ def render_demo_video(
     for det in detections:
         by_frame[det.frame_index].append(det)
     possession = estimate_possession(detections)
+    events_by_frame = _events_by_frame(events_path)
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -83,7 +85,8 @@ def render_demo_video(
         for det in by_frame.get(frame_index, []):
             _draw_detection(cv2, annotated, det, trails)
         _draw_header(cv2, frame, "Original")
-        _draw_header(cv2, annotated, _frame_header(frame_index, possession.get(frame_index)))
+        event = _recent_event(events_by_frame, frame_index)
+        _draw_header(cv2, annotated, _frame_header(frame_index, possession.get(frame_index), event))
         writer.write(np.hstack([frame, annotated]))
         frame_index += 1
 
@@ -119,8 +122,49 @@ def _draw_header(cv2, frame: np.ndarray, text: str) -> None:
     cv2.putText(frame, text, (12, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
 
-def _frame_header(frame_index: int, owner: Detection | None) -> str:
+def _frame_header(frame_index: int, owner: Detection | None, event: dict | None = None) -> str:
     if owner is None:
-        return "SAMBA FutBot: tracking | possession: none"
-    team = owner.team or "unknown"
-    return f"SAMBA FutBot: tracking | possession: {team} #{owner.track_id} | frame {frame_index}"
+        header = "SAMBA FutBot: tracking | possession: none"
+    else:
+        team = owner.team or "unknown"
+        header = f"SAMBA FutBot: tracking | possession: {team} #{owner.track_id}"
+    if event:
+        header += f" | event: {_event_label(event)}"
+    return f"{header} | frame {frame_index}"
+
+
+def _events_by_frame(events_path: str | Path | None) -> dict[int, list[dict]]:
+    if not events_path:
+        return {}
+    data = read_json(events_path)
+    if not isinstance(data, list):
+        return {}
+    by_frame: dict[int, list[dict]] = defaultdict(list)
+    for event in data:
+        if not isinstance(event, dict):
+            continue
+        by_frame[int(event.get("frame_index", 0))].append(event)
+    return by_frame
+
+
+def _recent_event(
+    events_by_frame: dict[int, list[dict]],
+    frame_index: int,
+    *,
+    hold_frames: int = 45,
+) -> dict | None:
+    for index in range(frame_index, max(-1, frame_index - hold_frames), -1):
+        events = events_by_frame.get(index)
+        if events:
+            return events[-1]
+    return None
+
+
+def _event_label(event: dict) -> str:
+    event_type = str(event.get("event_type", "event"))
+    metadata = event.get("metadata", {}) if isinstance(event.get("metadata", {}), dict) else {}
+    if event_type == "goal_candidate":
+        return f"goal {metadata.get('scoring_team', 'unknown')}"
+    if event_type == "shot":
+        return f"shot {metadata.get('shooting_team', 'unknown')}"
+    return event_type

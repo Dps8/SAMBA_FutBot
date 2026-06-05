@@ -174,8 +174,10 @@ def _possession_summary(
     total_frames = len(possession)
     streaks = _possession_streaks(possession, fps=fps)
     longest_streak = max(streaks, key=lambda item: item["frames"], default=None)
+    dominance = _possession_dominance(by_team, possessed_frames)
     return {
         "frames_with_possession": possessed_frames,
+        "frames_without_possession": max(0, total_frames - possessed_frames),
         "coverage_ratio": possessed_frames / total_frames if total_frames else 0.0,
         "seconds": possessed_frames / fps if fps and fps > 0 else None,
         "by_team": {
@@ -194,6 +196,7 @@ def _possession_summary(
             }
             for track_id, frames in sorted(by_track.items())
         },
+        "dominance": dominance,
         "longest_streak": longest_streak,
         "streaks": streaks[:20],
     }
@@ -245,6 +248,28 @@ def _possession_streaks(
         fps=fps,
     )
     return sorted(streaks, key=lambda item: item["frames"], reverse=True)
+
+
+def _possession_dominance(by_team: dict[str, int], possessed_frames: int) -> dict:
+    if possessed_frames <= 0 or not by_team:
+        return {
+            "team": "none",
+            "frames": 0,
+            "margin_frames": 0,
+            "ratio": 0.0,
+            "margin_ratio": 0.0,
+        }
+    ranked = sorted(by_team.items(), key=lambda item: (-item[1], item[0]))
+    team, frames = ranked[0]
+    runner_up_frames = ranked[1][1] if len(ranked) > 1 else 0
+    margin = frames - runner_up_frames
+    return {
+        "team": team,
+        "frames": frames,
+        "margin_frames": margin,
+        "ratio": frames / possessed_frames,
+        "margin_ratio": margin / possessed_frames,
+    }
 
 
 def _append_possession_streak(

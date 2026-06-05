@@ -115,6 +115,11 @@ Puntos clave:
 - `team_detection.enabled`: activa clasificacion de robots por equipo.
 - `team_detection.palette`: colores RGB esperados para equipos `blue` y
   `yellow`.
+- `team_detection.max_color_distance`: distancia maxima contra la paleta para
+  aceptar un pixel como evidencia de equipo.
+- `team_detection.min_saturation`, `min_value`, `min_pixels`: filtros para que
+  la clasificacion de equipo use pixeles cromaticos suficientes y no el fondo
+  verde/zonas oscuras del robot.
 - `goal_detection.color_enabled`: activa fallback cromatico para porterias
   azul/amarilla cuando SAM3 no las encuentra por prompt.
 - `goal_detection.adaptive_color`: si SAM3 encuentra `goal_blue` o
@@ -254,6 +259,12 @@ Parametros utiles:
 - `--max-seconds`: limita duracion renderizada.
 - `--no-render`: procesa sin generar video demo.
 - `--no-qa`: desactiva QA automatico.
+- `--run-report-out`: ruta opcional para el reporte Markdown integral de la
+  corrida. Si no se indica, el pipeline escribe en `outputs\reports`.
+- `--run-manifest-out`: ruta opcional para el manifiesto JSON reproducible de
+  la corrida. Si no se indica, el pipeline escribe en `outputs\reports`. Incluye
+  timestamp UTC, comando, argumentos, runtime, artefactos, huella Git local y
+  SHA256 del codigo/config usado.
 
 ## Pipeline Con Homografia
 
@@ -273,9 +284,17 @@ Esto agrega:
 - JSON de analisis de cancha.
 - CSV de trayectoria de pelota.
 - CSV de robots proyectados.
-- PNG de mapa tactico.
+- CSV de control territorial por zona.
+- PNG de mapa tactico con trayectoria de pelota, ocupacion por zonas, control
+  territorial y robots coloreados por equipo.
 - Candidatos reglamentarios: pelota fuera de campo, entradas a porteria,
   robots en area de penalizacion.
+- Ocupacion de robots por equipo, zona, area reglamentaria y tercio
+  defensivo/medio/ofensivo relativo al lado que defiende cada equipo.
+- Indice de presion ofensiva por equipo, calculado como proporcion de muestras
+  de robots en tercio ofensivo relativo.
+- Control territorial por zona: para cada celda de la grilla se reporta lider,
+  margen y proporcion de muestras por equipo.
 
 Para generar solo el analisis desde tracks existentes:
 
@@ -283,12 +302,19 @@ Para generar solo el analisis desde tracks existentes:
 python -m samba_futbot.cli field-analysis `
   --tracks "outputs\tracks\clip-tracks.jsonl" `
   --calibration config\top_camera_homography_template.yml `
+  --video "data\raw\video.mov" `
+  --config config\default.yml `
   --out "outputs\field_analysis\clip-field-analysis.json" `
   --csv-out "outputs\field_analysis\clip-trajectory.csv" `
   --robot-csv-out "outputs\field_analysis\clip-robots.csv" `
+  --zone-control-csv-out "outputs\field_analysis\clip-zone-control.csv" `
   --map-out "outputs\field_analysis\clip-field-map.png" `
   --fps 30
 ```
+
+`--video` es opcional, pero conviene usarlo cuando los tracks vienen de una
+corrida antigua sin `team`: recalcula `blue`/`yellow` desde la imagen antes de
+proyectar robots al campo.
 
 Validar una calibracion antes de confiar en distancias y velocidades metricas:
 
@@ -389,6 +415,7 @@ Render demo:
 python -m samba_futbot.cli render-demo `
   --video "data\raw\video.mov" `
   --tracks "outputs\tracks\video-tracks.jsonl" `
+  --events "outputs\events\video-events.json" `
   --out "outputs\videos\video-demo.mp4" `
   --max-seconds 120
 ```
@@ -401,6 +428,7 @@ python -m samba_futbot.cli summarize-run `
   --metrics "outputs\metrics\clip-metrics.json" `
   --events "outputs\events\clip-events.json" `
   --field-analysis "outputs\field_analysis\clip-field-analysis.json" `
+  --qa "outputs\qa\clip-qa.json" `
   --field-map "outputs\field_analysis\clip-field-map.png" `
   --demo "outputs\videos\clip-demo.mp4" `
   --out "outputs\reports\clip-report.md"
@@ -413,8 +441,18 @@ python -m samba_futbot.cli qa-run `
   --metrics "outputs\metrics\clip-metrics.json" `
   --events "outputs\events\clip-events.json" `
   --field-analysis "outputs\field_analysis\clip-field-analysis.json" `
+  --max-unknown-team-ratio 0.35 `
   --out "outputs\qa\clip-qa.json" `
   --report-out "outputs\qa\clip-qa.md"
+```
+
+Para ordenar varias corridas por calidad y escoger que revisar primero:
+
+```powershell
+python -m samba_futbot.cli qa-index `
+  --root "outputs\review" `
+  --out "outputs\review\qa-index.json" `
+  --report-out "outputs\review\qa-index.md"
 ```
 
 ## Resultados Generados
@@ -425,16 +463,28 @@ Cada corrida puede producir:
 - `detections-refined.jsonl`: detecciones despues de elegir trayectoria de pelota.
 - `tracks.jsonl`: detecciones con IDs temporales.
 - `metrics.json`: cobertura, fragmentacion, velocidades y conteos.
-  Incluye posesion por equipo y racha mas larga de posesion.
+  Incluye posesion por equipo, dominancia de posesion y racha mas larga de
+  posesion.
 - `events.json`: tiros, pases, posesion, colisiones o goles candidatos.
 - `event-summary.json`: marcador candidato por equipo, goles por porteria,
   pases, intercepciones, tiros y colisiones.
 - `field-analysis.json`: coordenadas metricas, zonas, velocidad en m/s y reglas.
 - `trajectory.csv`: trayectoria de pelota en metros.
 - `robots.csv`: posiciones proyectadas de robots.
-- `field-map.png`: mapa tactico de la cancha.
-- `demo.mp4`: video con overlays y trails.
-- `qa.json` / `qa.md`: evaluacion automatica de calidad.
+- `zone-control.csv`: lider, margen y proporcion de control por celda.
+- `field-map.png`: mapa tactico de la cancha con pelota, zonas, control
+  territorial y robots por equipo.
+- `demo.mp4`: video con overlays, trails, posesion y evento reciente cuando se
+  proporciona `events.json`.
+- `qa.json` / `qa.md`: evaluacion automatica de calidad, incluyendo cobertura
+  de pelota/campo, saltos, reglas e incertidumbre de equipos.
+- `qa-index.json` / `qa-index.md`: ranking de corridas QA encontradas bajo una
+  carpeta de resultados, incluyendo incertidumbre de equipos.
+- `report.md`: reporte integral de corrida con metricas, eventos, homografia,
+  QA, demo y mapa tactico cuando esos artefactos existen.
+- `manifest.json`: timestamp UTC, comando, argumentos, runtime, huella Git
+  local, SHA256 del codigo/config, rutas de artefactos y resumenes clave de la
+  corrida.
 
 ## Pruebas
 

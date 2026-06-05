@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import platform
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .ball_refinement import refine_ball_trajectory
@@ -23,11 +28,19 @@ from .field_analysis import (
     load_field_calibration,
     write_field_robot_csv,
     write_field_trajectory_csv,
+    write_field_zone_control_csv,
 )
 from .field_viz import render_field_map
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
-from .qa import evaluate_run_quality, write_quality_json, write_quality_markdown
+from .qa import (
+    collect_quality_reports,
+    evaluate_run_quality,
+    write_quality_index_json,
+    write_quality_index_markdown,
+    write_quality_json,
+    write_quality_markdown,
+)
 from .reporting import write_run_report
 from .sam3_adapter import run_sam3_video
 from .team import assign_robot_teams_from_video
@@ -184,10 +197,13 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--field-analysis-out", default=None)
     process.add_argument("--field-trajectory-csv", default=None)
     process.add_argument("--field-robot-csv", default=None)
+    process.add_argument("--field-zone-control-csv", default=None)
     process.add_argument("--field-map-out", default=None)
     process.add_argument("--qa", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--qa-out", default=None)
     process.add_argument("--qa-report-out", default=None)
+    process.add_argument("--run-report-out", default=None)
+    process.add_argument("--run-manifest-out", default=None)
     process.add_argument("--field-grid-cols", type=int, default=6)
     process.add_argument("--field-grid-rows", type=int, default=4)
     process.add_argument(
@@ -248,10 +264,13 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--field-analysis-out", default=None)
     top_camera.add_argument("--field-trajectory-csv", default=None)
     top_camera.add_argument("--field-robot-csv", default=None)
+    top_camera.add_argument("--field-zone-control-csv", default=None)
     top_camera.add_argument("--field-map-out", default=None)
     top_camera.add_argument("--qa", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--qa-out", default=None)
     top_camera.add_argument("--qa-report-out", default=None)
+    top_camera.add_argument("--run-report-out", default=None)
+    top_camera.add_argument("--run-manifest-out", default=None)
     top_camera.add_argument("--field-grid-cols", type=int, default=6)
     top_camera.add_argument("--field-grid-rows", type=int, default=4)
     top_camera.add_argument(
@@ -271,9 +290,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     field_analysis.add_argument("--tracks", required=True)
     field_analysis.add_argument("--calibration", required=True)
+    field_analysis.add_argument("--video", default=None)
+    field_analysis.add_argument("--config", default="config/default.yml")
     field_analysis.add_argument("--out", required=True)
     field_analysis.add_argument("--csv-out", default=None)
     field_analysis.add_argument("--robot-csv-out", default=None)
+    field_analysis.add_argument("--zone-control-csv-out", default=None)
     field_analysis.add_argument("--map-out", default=None)
     field_analysis.add_argument("--fps", type=float, default=None)
     field_analysis.add_argument("--possession-radius-px", type=float, default=90.0)
@@ -323,6 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--metrics", default=None)
     report.add_argument("--events", default=None)
     report.add_argument("--field-analysis", default=None)
+    report.add_argument("--qa", default=None)
     report.add_argument("--demo", default=None)
     report.add_argument("--field-map", default=None)
     report.set_defaults(func=cmd_summarize_run)
@@ -339,7 +362,19 @@ def build_parser() -> argparse.ArgumentParser:
     qa.add_argument("--fail-ball-jump-px-frame", type=float, default=None)
     qa.add_argument("--max-out-of-bounds-ratio", type=float, default=None)
     qa.add_argument("--fail-out-of-bounds-ratio", type=float, default=None)
+    qa.add_argument("--max-unknown-team-ratio", type=float, default=None)
+    qa.add_argument("--fail-unknown-team-ratio", type=float, default=None)
     qa.set_defaults(func=cmd_qa_run)
+
+    qa_index = sub.add_parser(
+        "qa-index",
+        help="Indexar y ordenar reportes QA de una carpeta de resultados.",
+    )
+    qa_index.add_argument("--root", default="outputs")
+    qa_index.add_argument("--pattern", default="*.json")
+    qa_index.add_argument("--out", required=True)
+    qa_index.add_argument("--report-out", default=None)
+    qa_index.set_defaults(func=cmd_qa_index)
 
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
@@ -378,6 +413,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--video", required=True)
     render.add_argument("--tracks", required=True)
     render.add_argument("--out", required=True)
+    render.add_argument("--events", default=None)
     render.add_argument("--max-seconds", type=float, default=120)
     render.add_argument("--trail-length", type=int, default=45)
     render.set_defaults(func=cmd_render_demo)
@@ -807,6 +843,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     field_analysis_out = None
     field_trajectory_csv = None
     field_robot_csv = None
+    field_zone_control_csv = None
     field_map_out = None
     if args.field_calibration:
         field_analysis_out = Path(
@@ -820,6 +857,10 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         field_robot_csv = Path(
             args.field_robot_csv
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-robots.csv"
+        )
+        field_zone_control_csv = Path(
+            args.field_zone_control_csv
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-zone-control.csv"
         )
         field_map_out = Path(
             args.field_map_out
@@ -838,6 +879,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         write_json(field_analysis_out, field_analysis_result)
         write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
         write_field_robot_csv(field_robot_csv, field_analysis_result)
+        write_field_zone_control_csv(field_zone_control_csv, field_analysis_result)
         render_field_map(field_analysis_result, field_map_out)
 
     rendered = None
@@ -849,6 +891,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
             args.video,
             tracks_out,
             video_out,
+            events_path=events_out,
             max_seconds=render_seconds,
             trail_length=args.trail_length,
         )
@@ -860,6 +903,45 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         metrics_out=metrics_out,
         events_out=events_out,
         field_analysis_out=field_analysis_out,
+    )
+    run_report_out = _write_pipeline_run_report(
+        args,
+        results_dir=results_dir,
+        stem=stem,
+        metrics_out=metrics_out,
+        events_out=events_out,
+        field_analysis_out=field_analysis_out,
+        qa_out=qa_out,
+        rendered=rendered,
+        field_map_out=field_map_out,
+    )
+    run_manifest_out = _write_pipeline_manifest(
+        args,
+        results_dir=results_dir,
+        stem=stem,
+        artifacts={
+            "detections": merged_out,
+            "color_goals": color_goals_out if color_goal_detections is not None else None,
+            "tracks": tracks_out,
+            "metrics": metrics_out,
+            "events": events_out,
+            "event_summary": event_summary_out,
+            "field_analysis": field_analysis_out,
+            "field_trajectory_csv": field_trajectory_csv,
+            "field_robot_csv": field_robot_csv,
+            "field_zone_control_csv": field_zone_control_csv,
+            "field_map": field_map_out,
+            "qa": qa_out,
+            "qa_report": qa_report_out,
+            "run_report": run_report_out,
+            "demo": rendered,
+        },
+        metrics_summary=summary,
+        event_summary=event_summary,
+        field_analysis_summary=(
+            field_analysis_result.get("summary") if field_analysis_result else None
+        ),
+        qa_status=qa_report.get("status") if qa_report else None,
     )
 
     print(
@@ -885,9 +967,14 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                         str(field_trajectory_csv) if field_trajectory_csv else None
                     ),
                     "field_robot_csv": str(field_robot_csv) if field_robot_csv else None,
+                    "field_zone_control_csv": (
+                        str(field_zone_control_csv) if field_zone_control_csv else None
+                    ),
                     "field_map": str(field_map_out) if field_map_out else None,
                     "qa": str(qa_out) if qa_out else None,
                     "qa_report": str(qa_report_out) if qa_report_out else None,
+                    "run_report": str(run_report_out) if run_report_out else None,
+                    "run_manifest": str(run_manifest_out) if run_manifest_out else None,
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
@@ -1089,6 +1176,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     field_analysis_out = None
     field_trajectory_csv = None
     field_robot_csv = None
+    field_zone_control_csv = None
     field_map_out = None
     if args.field_calibration:
         field_analysis_out = Path(
@@ -1102,6 +1190,10 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         field_robot_csv = Path(
             args.field_robot_csv
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-robots.csv"
+        )
+        field_zone_control_csv = Path(
+            args.field_zone_control_csv
+            or results_dir / "field_analysis" / f"{stem}-{args.suffix}-zone-control.csv"
         )
         field_map_out = Path(
             args.field_map_out
@@ -1120,6 +1212,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         write_json(field_analysis_out, field_analysis_result)
         write_field_trajectory_csv(field_trajectory_csv, field_analysis_result)
         write_field_robot_csv(field_robot_csv, field_analysis_result)
+        write_field_zone_control_csv(field_zone_control_csv, field_analysis_result)
         render_field_map(field_analysis_result, field_map_out)
 
     rendered = None
@@ -1131,6 +1224,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             args.video,
             tracks_out,
             video_out,
+            events_path=events_out,
             max_seconds=render_seconds,
             trail_length=args.trail_length,
         )
@@ -1142,6 +1236,53 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         metrics_out=metrics_out,
         events_out=events_out,
         field_analysis_out=field_analysis_out,
+    )
+    run_report_out = _write_pipeline_run_report(
+        args,
+        results_dir=results_dir,
+        stem=stem,
+        metrics_out=metrics_out,
+        events_out=events_out,
+        field_analysis_out=field_analysis_out,
+        qa_out=qa_out,
+        rendered=rendered,
+        field_map_out=field_map_out,
+    )
+    run_manifest_out = _write_pipeline_manifest(
+        args,
+        results_dir=results_dir,
+        stem=stem,
+        artifacts={
+            "field_detections": field_out / "detections.jsonl",
+            "sam3_ball_detections": (
+                sam3_ball_out / "detections.jsonl" if sam3_ball_enabled else None
+            ),
+            "color_ball_detections": color_ball_out if color_ball_enabled else None,
+            "color_goal_detections": (
+                color_goals_out if color_goal_detections is not None else None
+            ),
+            "detections": merged_out,
+            "refined_detections": refined_out,
+            "tracks": tracks_out,
+            "metrics": metrics_out,
+            "events": events_out,
+            "event_summary": event_summary_out,
+            "field_analysis": field_analysis_out,
+            "field_trajectory_csv": field_trajectory_csv,
+            "field_robot_csv": field_robot_csv,
+            "field_zone_control_csv": field_zone_control_csv,
+            "field_map": field_map_out,
+            "qa": qa_out,
+            "qa_report": qa_report_out,
+            "run_report": run_report_out,
+            "demo": rendered,
+        },
+        metrics_summary=summary,
+        event_summary=event_summary,
+        field_analysis_summary=(
+            field_analysis_result.get("summary") if field_analysis_result else None
+        ),
+        qa_status=qa_report.get("status") if qa_report else None,
     )
 
     ball_in = sum(1 for det in merged if det.class_name in {"ball", "balon", "soccer_ball"})
@@ -1188,9 +1329,14 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                         str(field_trajectory_csv) if field_trajectory_csv else None
                     ),
                     "field_robot_csv": str(field_robot_csv) if field_robot_csv else None,
+                    "field_zone_control_csv": (
+                        str(field_zone_control_csv) if field_zone_control_csv else None
+                    ),
                     "field_map": str(field_map_out) if field_map_out else None,
                     "qa": str(qa_out) if qa_out else None,
                     "qa_report": str(qa_report_out) if qa_report_out else None,
+                    "run_report": str(run_report_out) if run_report_out else None,
+                    "run_manifest": str(run_manifest_out) if run_manifest_out else None,
                     "demo": str(rendered) if rendered else None,
                 },
                 "metrics": summary,
@@ -1232,6 +1378,162 @@ def _write_pipeline_qa(
     return qa_out, qa_report_out, report
 
 
+def _write_pipeline_run_report(
+    args: argparse.Namespace,
+    *,
+    results_dir: Path,
+    stem: str,
+    metrics_out: Path,
+    events_out: Path,
+    field_analysis_out: Path | None,
+    qa_out: Path | None,
+    rendered: Path | None,
+    field_map_out: Path | None,
+) -> Path:
+    report_out = Path(
+        args.run_report_out or results_dir / "reports" / f"{stem}-{args.suffix}-report.md"
+    )
+    return write_run_report(
+        report_out,
+        title=f"{stem} {args.suffix}",
+        metrics_path=metrics_out,
+        events_path=events_out,
+        field_analysis_path=field_analysis_out,
+        qa_path=qa_out,
+        demo_path=rendered,
+        field_map_path=field_map_out,
+    )
+
+
+def _write_pipeline_manifest(
+    args: argparse.Namespace,
+    *,
+    results_dir: Path,
+    stem: str,
+    artifacts: dict,
+    metrics_summary: dict,
+    event_summary: dict,
+    field_analysis_summary: dict | None,
+    qa_status: str | None,
+) -> Path:
+    manifest_out = Path(
+        args.run_manifest_out
+        or results_dir / "reports" / f"{stem}-{args.suffix}-manifest.json"
+    )
+    manifest = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "command": " ".join(sys.argv),
+        "command_argv": list(sys.argv),
+        "command_name": getattr(args, "command", None),
+        "video": getattr(args, "video", None),
+        "config": getattr(args, "config", None),
+        "results_dir": str(results_dir),
+        "suffix": getattr(args, "suffix", None),
+        "git": _git_snapshot(Path(__file__).resolve().parents[2]),
+        "source_fingerprint": _source_fingerprint(Path(__file__).resolve().parents[2]),
+        "runtime": _runtime_snapshot(),
+        "args": _jsonable(vars(args)),
+        "artifacts": {
+            key: str(value) if value is not None else None for key, value in sorted(artifacts.items())
+        },
+        "metrics": {
+            "frames_observed": metrics_summary.get("frames_observed"),
+            "detections": metrics_summary.get("detections"),
+            "tracks": metrics_summary.get("tracks"),
+            "possession": metrics_summary.get("possession", {}),
+        },
+        "event_summary": event_summary,
+        "field_analysis_summary": field_analysis_summary,
+        "qa_status": qa_status,
+    }
+    write_json(manifest_out, manifest)
+    return manifest_out
+
+
+def _runtime_snapshot() -> dict:
+    return {
+        "python": sys.version,
+        "python_executable": sys.executable,
+        "platform": platform.platform(),
+    }
+
+
+def _source_fingerprint(repo_root: Path) -> dict:
+    patterns = [
+        "src/samba_futbot/*.py",
+        "config/*.yml",
+        "config/*.yaml",
+        "pyproject.toml",
+        "requirements*.txt",
+    ]
+    files: list[Path] = []
+    for pattern in patterns:
+        files.extend(path for path in repo_root.glob(pattern) if path.is_file())
+
+    digest = hashlib.sha256()
+    hashed_files = []
+    for path in sorted(set(files), key=lambda item: item.as_posix()):
+        relative = path.relative_to(repo_root).as_posix()
+        data = path.read_bytes()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(data)
+        digest.update(b"\0")
+        hashed_files.append(relative)
+
+    return {
+        "algorithm": "sha256",
+        "digest": digest.hexdigest(),
+        "files_hashed": len(hashed_files),
+        "paths": hashed_files,
+    }
+
+
+def _git_snapshot(repo_root: Path) -> dict:
+    def run_git(*args: str) -> str:
+        completed = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return completed.stdout.strip()
+
+    try:
+        branch = run_git("rev-parse", "--abbrev-ref", "HEAD")
+        commit = run_git("rev-parse", "HEAD")
+        status = run_git("status", "--short")
+    except Exception as exc:
+        return {
+            "available": False,
+            "repo_root": str(repo_root),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    changed_files = [line for line in status.splitlines() if line.strip()]
+    return {
+        "available": True,
+        "repo_root": str(repo_root),
+        "branch": branch,
+        "commit": commit,
+        "dirty": bool(changed_files),
+        "changed_files": len(changed_files),
+    }
+
+
+def _jsonable(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_jsonable(item) for item in value]
+    if callable(value):
+        return getattr(value, "__name__", str(value))
+    return value
+
+
 def _assign_teams_for_process(video_path: str, detections: list, config: dict) -> list:
     team_config = config.get("team_detection", {})
     if not bool(team_config.get("enabled", True)):
@@ -1243,6 +1545,9 @@ def _assign_teams_for_process(video_path: str, detections: list, config: dict) -
         detections,
         palette=palette,
         max_color_distance=max_distance,
+        min_saturation=int(team_config.get("min_saturation", 45)),
+        min_value=int(team_config.get("min_value", 40)),
+        min_pixels=int(team_config.get("min_pixels", 8)),
     )
 
 
@@ -1419,8 +1724,11 @@ def _parse_hsv_bound(value: str | None, *, fallback: object) -> tuple[int, int, 
 
 
 def cmd_field_analysis(args: argparse.Namespace) -> None:
+    detections = read_detections(args.tracks)
+    if args.video:
+        detections = _assign_teams_for_process(args.video, detections, load_config(args.config))
     analysis = analyze_field_tracks(
-        read_detections(args.tracks),
+        detections,
         load_field_calibration(args.calibration),
         fps=args.fps,
         possession_radius_px=args.possession_radius_px,
@@ -1434,6 +1742,8 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
         write_field_trajectory_csv(args.csv_out, analysis)
     if args.robot_csv_out:
         write_field_robot_csv(args.robot_csv_out, analysis)
+    if args.zone_control_csv_out:
+        write_field_zone_control_csv(args.zone_control_csv_out, analysis)
     if args.map_out:
         render_field_map(analysis, args.map_out)
     print(
@@ -1442,6 +1752,7 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
                 "out": args.out,
                 "csv_out": args.csv_out,
                 "robot_csv_out": args.robot_csv_out,
+                "zone_control_csv_out": args.zone_control_csv_out,
                 "map_out": args.map_out,
                 "summary": analysis["summary"],
                 "robot_summary": analysis["robot_summary"],
@@ -1492,6 +1803,7 @@ def cmd_summarize_run(args: argparse.Namespace) -> None:
         metrics_path=args.metrics,
         events_path=args.events,
         field_analysis_path=args.field_analysis,
+        qa_path=args.qa,
         demo_path=args.demo,
         field_map_path=args.field_map,
     )
@@ -1525,6 +1837,26 @@ def cmd_qa_run(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_qa_index(args: argparse.Namespace) -> None:
+    reports = collect_quality_reports(args.root, pattern=args.pattern)
+    out = write_quality_index_json(args.out, reports)
+    report_out = None
+    if args.report_out:
+        report_out = write_quality_index_markdown(args.report_out, reports)
+    print(
+        json.dumps(
+            {
+                "qa_index": str(out),
+                "report": str(report_out) if report_out else None,
+                "runs": len(reports),
+                "best": reports[0] if reports else None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def _qa_thresholds(args: argparse.Namespace) -> dict[str, float]:
     mapping = {
         "min_ball_coverage": args.min_ball_coverage,
@@ -1533,6 +1865,8 @@ def _qa_thresholds(args: argparse.Namespace) -> dict[str, float]:
         "fail_ball_jump_px_frame": args.fail_ball_jump_px_frame,
         "max_out_of_bounds_ratio": args.max_out_of_bounds_ratio,
         "fail_out_of_bounds_ratio": args.fail_out_of_bounds_ratio,
+        "max_unknown_team_ratio": args.max_unknown_team_ratio,
+        "fail_unknown_team_ratio": args.fail_unknown_team_ratio,
     }
     return {key: value for key, value in mapping.items() if value is not None}
 
@@ -1598,6 +1932,7 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         args.video,
         args.tracks,
         args.out,
+        events_path=args.events,
         max_seconds=args.max_seconds,
         trail_length=args.trail_length,
     )

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from samba_futbot.team import assign_robot_teams_from_video, nearest_palette_team
+from samba_futbot.team import assign_robot_teams_from_video, nearest_palette_team, palette_team_vote
 from samba_futbot.types import Detection
 from samba_futbot.video import require_cv2
 
@@ -46,6 +46,23 @@ class TeamTest(unittest.TestCase):
             )
 
         self.assertEqual({det.team for det in assigned}, {"blue"})
+
+    def test_palette_team_vote_ignores_field_background(self):
+        crop = np.zeros((40, 40, 3), dtype=np.uint8)
+        crop[:, :] = (15, 150, 40)
+        crop[12:28, 12:28] = (55, 115, 220)
+
+        team, distance = palette_team_vote(
+            crop,
+            {"blue": (55, 115, 220), "yellow": (230, 210, 60)},
+            max_color_distance=90,
+            min_saturation=40,
+            min_value=30,
+            min_pixels=20,
+        )
+
+        self.assertEqual(team, "blue")
+        self.assertLess(distance, 1)
 
 
 if __name__ == "__main__":

@@ -49,6 +49,9 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(possession["by_team"]["blue"]["frames"], 2)
         self.assertAlmostEqual(possession["by_team"]["blue"]["seconds"], 0.2)
         self.assertEqual(possession["by_team"]["yellow"]["frames"], 1)
+        self.assertEqual(possession["dominance"]["team"], "blue")
+        self.assertAlmostEqual(possession["dominance"]["ratio"], 2 / 3)
+        self.assertAlmostEqual(possession["dominance"]["margin_ratio"], 1 / 3)
         self.assertEqual(possession["longest_streak"]["team"], "blue")
         self.assertEqual(possession["longest_streak"]["frames"], 2)
 

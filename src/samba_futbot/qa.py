@@ -16,6 +16,8 @@ DEFAULT_THRESHOLDS = {
     "fail_ball_jump_px_frame": 120.0,
     "max_out_of_bounds_ratio": 0.05,
     "fail_out_of_bounds_ratio": 0.20,
+    "max_unknown_team_ratio": 0.35,
+    "fail_unknown_team_ratio": 0.75,
 }
 
 
@@ -71,6 +73,7 @@ def write_quality_markdown(path: str | Path, report: dict) -> Path:
         f"- Field path samples: `{summary.get('field_path_samples', 0)}`",
         f"- Ball out-of-bounds ratio: `{summary.get('ball_out_of_bounds_ratio', 0.0):.1%}`",
         f"- Robot penalty-area samples: `{summary.get('robot_penalty_area_samples', 0)}`",
+        f"- Unknown-team robot ratio: `{summary.get('unknown_team_ratio', 0.0):.1%}`",
         "",
         "## Issues",
         "",
@@ -96,6 +99,60 @@ def write_quality_markdown(path: str | Path, report: dict) -> Path:
     return output
 
 
+def collect_quality_reports(root: str | Path, *, pattern: str = "*.json") -> list[dict]:
+    base = Path(root)
+    reports = []
+    for path in sorted(base.rglob(pattern)):
+        if not path.is_file():
+            continue
+        try:
+            data = read_json(path)
+        except Exception:
+            continue
+        if not isinstance(data, dict) or "quality_score" not in data or "status" not in data:
+            continue
+        reports.append(_quality_index_record(path, data, base))
+    return sorted(
+        reports,
+        key=lambda item: (
+            _status_rank(str(item.get("status", "unknown"))),
+            -int(item.get("quality_score", 0)),
+            str(item.get("path", "")),
+        ),
+    )
+
+
+def write_quality_index_json(path: str | Path, reports: list[dict]) -> Path:
+    write_json(path, {"runs": reports, "total": len(reports)})
+    return Path(path)
+
+
+def write_quality_index_markdown(path: str | Path, reports: list[dict]) -> Path:
+    lines = [
+        "# QA Run Index",
+        "",
+        "| Rank | Status | Score | Ball coverage | Max jump | Unknown teams | Path |",
+        "|---:|---|---:|---:|---:|---:|---|",
+    ]
+    for index, report in enumerate(reports, start=1):
+        summary = report.get("summary", {})
+        lines.append(
+            "| "
+            f"{index} | "
+            f"`{report.get('status', 'unknown')}` | "
+            f"{int(report.get('quality_score', 0))} | "
+            f"{float(summary.get('ball_in_play_coverage_ratio', 0.0)):.1%} | "
+            f"{float(summary.get('max_ball_speed_px_frame', 0.0)):.1f} | "
+            f"{float(summary.get('unknown_team_ratio', 0.0)):.1%} | "
+            f"`{report.get('path', '')}` |"
+        )
+    if not reports:
+        lines.append("| 0 | `none` | 0 | 0.0% | 0.0 | 0.0% | `No QA reports found` |")
+    output = ensure_parent(path)
+    output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return output
+
+
 def _summary(metrics: dict[str, Any], events: list[Any], field: dict[str, Any]) -> dict:
     classes = metrics.get("classes", {})
     ball = classes.get("ball", {})
@@ -104,6 +161,13 @@ def _summary(metrics: dict[str, Any], events: list[Any], field: dict[str, Any]) 
     motion = metrics.get("motion", {}).get("ball", {})
     field_summary = field.get("summary", {})
     robot_summary = field.get("robot_summary", {})
+    robot_samples_by_team = (
+        robot_summary.get("samples_by_team", {})
+        if isinstance(robot_summary.get("samples_by_team", {}), dict)
+        else {}
+    )
+    robot_sample_total = sum(int(_number(value)) for value in robot_samples_by_team.values())
+    unknown_team_samples = int(_number(robot_samples_by_team.get("unknown")))
     path_samples = _number(field_summary.get("path_samples"))
     out_of_bounds = _number(field_summary.get("ball_out_of_bounds_samples"))
     event_counts: dict[str, int] = {}
@@ -131,6 +195,10 @@ def _summary(metrics: dict[str, Any], events: list[Any], field: dict[str, Any]) 
         "ball_out_of_bounds_samples": int(out_of_bounds),
         "ball_out_of_bounds_ratio": out_of_bounds / path_samples if path_samples else 0.0,
         "robot_penalty_area_samples": int(_number(robot_summary.get("penalty_area_samples"))),
+        "robot_samples_by_team": robot_samples_by_team,
+        "unknown_team_ratio": (
+            unknown_team_samples / robot_sample_total if robot_sample_total else 0.0
+        ),
         "event_counts": event_counts,
     }
 
@@ -191,6 +259,15 @@ def _issues(summary: dict[str, Any], limits: dict[str, float]) -> list[dict]:
                 0,
             )
         )
+    _upper_issue(
+        issues,
+        code="unknown_robot_teams",
+        label="Unknown-team robot ratio",
+        value=summary["unknown_team_ratio"],
+        warn_limit=limits["max_unknown_team_ratio"],
+        fail_limit=limits["fail_unknown_team_ratio"],
+        unit="ratio",
+    )
     return issues
 
 
@@ -257,6 +334,37 @@ def _quality_score(issues: list[dict]) -> int:
     for issue in issues:
         score -= 25 if issue["severity"] == "error" else 10
     return max(0, score)
+
+
+def _quality_index_record(path: Path, report: dict, root: Path) -> dict:
+    try:
+        rel_path = path.relative_to(root)
+    except ValueError:
+        rel_path = path
+    summary = report.get("summary", {}) if isinstance(report.get("summary", {}), dict) else {}
+    return {
+        "path": str(rel_path).replace("\\", "/"),
+        "status": str(report.get("status", "unknown")),
+        "quality_score": int(_number(report.get("quality_score"))),
+        "summary": {
+            "frames_observed": int(_number(summary.get("frames_observed"))),
+            "ball_in_play_coverage_ratio": _number(
+                summary.get("ball_in_play_coverage_ratio")
+            ),
+            "max_ball_speed_px_frame": _number(summary.get("max_ball_speed_px_frame")),
+            "field_path_samples": int(_number(summary.get("field_path_samples"))),
+            "robot_penalty_area_samples": int(
+                _number(summary.get("robot_penalty_area_samples"))
+            ),
+            "unknown_team_ratio": _number(summary.get("unknown_team_ratio")),
+        },
+        "issues": report.get("issues", []) if isinstance(report.get("issues", []), list) else [],
+        "inputs": report.get("inputs", {}) if isinstance(report.get("inputs", {}), dict) else {},
+    }
+
+
+def _status_rank(status: str) -> int:
+    return {"good": 0, "review": 1, "fail": 2}.get(status, 3)
 
 
 def _read_mapping(path: str | Path | None) -> dict[str, Any]:

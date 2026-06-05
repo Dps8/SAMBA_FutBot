@@ -48,6 +48,12 @@ ejecutar un notebook.
    - Homografia: convertir centros de pelota desde pixeles a metros de cancha.
    - Zonas: reportar ocupacion por grilla para diferenciar juego defensivo,
      medio y ofensivo.
+   - Tercio relativo por equipo: convertir posiciones de robots en muestras
+     defensivas, medias u ofensivas segun el lado que defiende cada equipo.
+   - Presion ofensiva: resumir la proporcion de robots de cada equipo en su
+     tercio ofensivo para comparar intencion tactica.
+   - Control territorial: estimar equipo lider por zona de grilla a partir de
+     muestras proyectadas de robots.
    - Mapa tactico: PNG con trayectoria y calor por zonas para explicar el
      comportamiento sin depender del video completo.
    - Reglas oficiales: usar campo `2.43 m x 1.82 m`, circulo central de
@@ -68,11 +74,16 @@ ejecutar un notebook.
    - QA automatico: clasificar cada corrida como `good`, `review` o `fail`
      usando cobertura de pelota, saltos imposibles, cobertura de campo/robots y
      senales reglamentarias.
-   - Reporte reproducible: generar Markdown por corrida para convertir metricas
-     tecnicas en narrativa de evaluacion.
+   - Reporte reproducible: generar Markdown y manifiesto JSON por corrida para
+     convertir metricas tecnicas en narrativa de evaluacion y conservar
+     timestamp, runtime, branch, commit y estado local de Git.
+   - Huella de codigo: incluir SHA256 de los archivos `src`, `config` y
+     dependencias declaradas para que las corridas sigan siendo auditables en
+     copias exportadas sin carpeta `.git`.
    - Pase: cambio de poseedor dentro del mismo equipo.
    - Intercepcion: cambio de poseedor entre equipos.
-   - Tiro: velocidad del balon hacia zona de gol.
+   - Tiro: velocidad del balon con direccion hacia el lado de porteria, no solo
+     cercania a la zona de gol.
    - Colision: distancia pequena entre robots con convergencia de trayectorias.
 
 6. **Visualizacion**

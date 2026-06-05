@@ -17,9 +17,17 @@ DEFAULT_TEAM_PALETTE = {
 }
 
 
-def dominant_rgb(frame_rgb: np.ndarray, mask: np.ndarray | None = None) -> tuple[int, int, int]:
+def dominant_rgb(
+    frame_rgb: np.ndarray,
+    mask: np.ndarray | None = None,
+    *,
+    min_saturation: int = 0,
+    min_value: int = 0,
+    min_pixels: int = 1,
+) -> tuple[int, int, int]:
     pixels = frame_rgb[mask > 0] if mask is not None else frame_rgb.reshape(-1, 3)
-    if pixels.size == 0:
+    pixels = _filter_color_pixels(pixels, min_saturation=min_saturation, min_value=min_value)
+    if len(pixels) < min_pixels:
         return (0, 0, 0)
     median = np.median(pixels, axis=0)
     return tuple(int(v) for v in median[:3])
@@ -45,6 +53,9 @@ def assign_robot_teams_from_video(
     *,
     palette: dict[str, tuple[int, int, int]] | None = None,
     max_color_distance: float = 170.0,
+    min_saturation: int = 45,
+    min_value: int = 40,
+    min_pixels: int = 8,
 ) -> list[Detection]:
     detections_list = list(detections)
     robot_dets = [
@@ -56,7 +67,15 @@ def assign_robot_teams_from_video(
         return detections_list
 
     resolved_palette = palette or DEFAULT_TEAM_PALETTE
-    observations = _team_observations(video_path, robot_dets, resolved_palette)
+    observations = _team_observations(
+        video_path,
+        robot_dets,
+        resolved_palette,
+        max_color_distance=max_color_distance,
+        min_saturation=min_saturation,
+        min_value=min_value,
+        min_pixels=min_pixels,
+    )
     team_by_track = _team_by_track(observations, max_color_distance=max_color_distance)
     for det in detections_list:
         if det.class_name in ROBOT_CLASSES and det.track_id in team_by_track:
@@ -68,6 +87,11 @@ def _team_observations(
     video_path: str | Path,
     robot_dets: list[Detection],
     palette: dict[str, tuple[int, int, int]],
+    *,
+    max_color_distance: float,
+    min_saturation: int,
+    min_value: int,
+    min_pixels: int,
 ) -> dict[int, list[tuple[str, float]]]:
     cv2 = require_cv2()
     by_frame: dict[int, list[Detection]] = {}
@@ -93,14 +117,59 @@ def _team_observations(
             crop = _crop_detection(frame_rgb, det)
             if crop.size == 0 or det.track_id is None:
                 continue
-            rgb = dominant_rgb(crop)
-            team, distance = nearest_palette_team(rgb, palette)
-            observations.setdefault(det.track_id, []).append((team, distance))
+            team, distance = palette_team_vote(
+                crop,
+                palette,
+                max_color_distance=max_color_distance,
+                min_saturation=min_saturation,
+                min_value=min_value,
+                min_pixels=min_pixels,
+            )
+            if team != "unknown":
+                observations.setdefault(det.track_id, []).append((team, distance))
         wanted.remove(frame_index)
         frame_index += 1
 
     cap.release()
     return observations
+
+
+def palette_team_vote(
+    crop_rgb: np.ndarray,
+    palette: dict[str, tuple[int, int, int]],
+    *,
+    max_color_distance: float,
+    min_saturation: int = 45,
+    min_value: int = 40,
+    min_pixels: int = 8,
+) -> tuple[str, float]:
+    pixels = _filter_color_pixels(
+        crop_rgb.reshape(-1, 3),
+        min_saturation=min_saturation,
+        min_value=min_value,
+    )
+    if len(pixels) < min_pixels:
+        return "unknown", float("inf")
+
+    palette_items = list(palette.items())
+    distances = np.stack(
+        [
+            np.linalg.norm(pixels.astype(np.float64) - np.asarray(value, dtype=np.float64), axis=1)
+            for _, value in palette_items
+        ],
+        axis=1,
+    )
+    best_indices = np.argmin(distances, axis=1)
+    best_distances = distances[np.arange(len(pixels)), best_indices]
+    valid = best_distances <= max_color_distance
+    if int(np.count_nonzero(valid)) < min_pixels:
+        return "unknown", float("inf")
+
+    votes = Counter(palette_items[index][0] for index in best_indices[valid])
+    team, _ = votes.most_common(1)[0]
+    team_index = next(index for index, item in enumerate(palette_items) if item[0] == team)
+    team_distances = distances[valid, team_index]
+    return team, float(np.mean(team_distances))
 
 
 def _team_by_track(
@@ -132,3 +201,20 @@ def _crop_detection(frame_rgb: np.ndarray, det: Detection) -> np.ndarray:
     mx = max(0, int(w * 0.18))
     my = max(0, int(h * 0.18))
     return crop[my : h - my or h, mx : w - mx or w]
+
+
+def _filter_color_pixels(
+    pixels_rgb: np.ndarray,
+    *,
+    min_saturation: int,
+    min_value: int,
+) -> np.ndarray:
+    if pixels_rgb.size == 0:
+        return pixels_rgb.reshape(0, 3)
+    if min_saturation <= 0 and min_value <= 0:
+        return pixels_rgb.reshape(-1, 3)
+    cv2 = require_cv2()
+    pixels = pixels_rgb.reshape(-1, 1, 3).astype(np.uint8)
+    hsv = cv2.cvtColor(pixels, cv2.COLOR_RGB2HSV).reshape(-1, 3)
+    keep = (hsv[:, 1] >= min_saturation) & (hsv[:, 2] >= min_value)
+    return pixels_rgb.reshape(-1, 3)[keep]

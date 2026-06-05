@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 from samba_futbot.field_analysis import (
     DEFAULT_FIELD_LENGTH_M,
     DEFAULT_FIELD_WIDTH_M,
@@ -10,6 +12,7 @@ from samba_futbot.field_analysis import (
     load_field_calibration,
     write_field_trajectory_csv,
     write_field_robot_csv,
+    write_field_zone_control_csv,
 )
 from samba_futbot.field_viz import render_field_map
 from samba_futbot.types import Detection
@@ -80,15 +83,42 @@ class FieldAnalysisTest(unittest.TestCase):
         )
         detections = [
             Detection(0, "field", 1.0, (0, 0, 243, 182)),
-            Detection(0, "robots", 1.0, (5, 80, 15, 90), track_id=7),
+            Detection(0, "robots", 1.0, (5, 80, 15, 90), track_id=7, team="blue"),
+            Detection(1, "robots", 1.0, (230, 80, 240, 90), track_id=8, team="yellow"),
             Detection(0, "ball", 1.0, (120, 90, 124, 94), track_id=1),
         ]
 
         analysis = analyze_field_tracks(detections, calibration, fps=10)
 
-        self.assertEqual(analysis["robot_summary"]["path_samples"], 1)
-        self.assertEqual(analysis["robot_summary"]["penalty_area_samples"], 1)
+        self.assertEqual(analysis["robot_summary"]["path_samples"], 2)
+        self.assertEqual(analysis["robot_summary"]["penalty_area_samples"], 2)
         self.assertEqual(analysis["robot_path"][0]["penalty_side"], "left")
+        self.assertEqual(analysis["robot_summary"]["samples_by_team"]["blue"], 1)
+        self.assertEqual(analysis["robot_summary"]["samples_by_team"]["yellow"], 1)
+        self.assertEqual(
+            analysis["robot_summary"]["penalty_area_samples_by_team"]["blue"]["left"],
+            1,
+        )
+        self.assertEqual(
+            analysis["robot_summary"]["penalty_area_samples_by_team"]["yellow"]["right"],
+            1,
+        )
+        self.assertEqual(
+            analysis["robot_summary"]["phase_samples_by_team"]["blue"]["attacking"],
+            1,
+        )
+        self.assertEqual(
+            analysis["robot_summary"]["phase_samples_by_team"]["yellow"]["attacking"],
+            1,
+        )
+        self.assertEqual(
+            analysis["robot_summary"]["phase_ratios_by_team"]["blue"]["attacking"],
+            1.0,
+        )
+        self.assertEqual(analysis["robot_summary"]["attacking_pressure_by_team"]["yellow"], 1.0)
+        self.assertTrue(analysis["robot_summary"]["zone_samples_by_team"]["blue"])
+        self.assertEqual(analysis["robot_zone_control"][0]["leader"], "blue")
+        self.assertEqual(analysis["robot_zone_control"][0]["leader_ratio"], 1.0)
 
     def test_load_calibration_and_write_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,11 +153,15 @@ class FieldAnalysisTest(unittest.TestCase):
             write_field_trajectory_csv(csv_path, analysis)
             robot_csv_path = tmp_path / "robots.csv"
             write_field_robot_csv(robot_csv_path, analysis)
+            zone_control_csv_path = tmp_path / "zone-control.csv"
+            write_field_zone_control_csv(zone_control_csv_path, analysis)
             csv_text = csv_path.read_text(encoding="utf-8")
             robot_csv_text = robot_csv_path.read_text(encoding="utf-8")
+            zone_control_text = zone_control_csv_path.read_text(encoding="utf-8")
 
         self.assertIn("field_x_m", csv_text)
         self.assertIn("penalty_side", robot_csv_text)
+        self.assertIn("leader_ratio", zone_control_text)
 
     def test_render_field_map_writes_nonblank_png(self):
         calibration = FieldCalibration.from_mapping(
@@ -148,6 +182,8 @@ class FieldAnalysisTest(unittest.TestCase):
             [
                 Detection(0, "field", 1.0, (0, 0, 100, 50)),
                 Detection(10, "field", 1.0, (0, 0, 100, 50)),
+                Detection(0, "robots", 1.0, (15, 10, 25, 20), track_id=2, team="blue"),
+                Detection(10, "robots", 1.0, (75, 30, 85, 40), track_id=3, team="yellow"),
                 Detection(0, "ball", 1.0, (20, 20, 30, 30), track_id=1),
                 Detection(10, "ball", 1.0, (70, 20, 80, 30), track_id=1),
             ],
@@ -159,6 +195,21 @@ class FieldAnalysisTest(unittest.TestCase):
 
             self.assertTrue(out.exists())
             self.assertGreater(out.stat().st_size, 1000)
+            with Image.open(out) as image:
+                pixel_bytes = image.convert("RGB").tobytes()
+
+        blue_pixels = [
+            pixel
+            for pixel in zip(pixel_bytes[0::3], pixel_bytes[1::3], pixel_bytes[2::3])
+            if pixel[2] > 170 and pixel[0] < 120 and pixel[1] < 170
+        ]
+        yellow_pixels = [
+            pixel
+            for pixel in zip(pixel_bytes[0::3], pixel_bytes[1::3], pixel_bytes[2::3])
+            if pixel[0] > 180 and pixel[1] > 150 and pixel[2] < 120
+        ]
+        self.assertGreater(len(blue_pixels), 10)
+        self.assertGreater(len(yellow_pixels), 10)
 
 
 if __name__ == "__main__":

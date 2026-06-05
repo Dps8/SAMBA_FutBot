@@ -42,6 +42,8 @@ def render_field_map(
     field_box = (margin, margin, margin + field_px_width, margin + field_px_height)
     _draw_field(draw, field_box, field, font)
     _draw_heatmap(draw, analysis, field_box)
+    _draw_territorial_control(draw, analysis, field_box)
+    _draw_robot_positions(draw, analysis, field_box, field_length, field_width)
     _draw_trajectory(draw, analysis, field_box, field_length, field_width)
     _draw_summary(draw, analysis, field_box, font)
 
@@ -121,7 +123,7 @@ def _draw_field(
         )
     draw.text(
         (x1, y1 - 28),
-        "Field map: ball trajectory and zone occupancy",
+        "Field map: ball trajectory, zone occupancy and robot teams",
         fill=(35, 45, 40, 255),
         font=font,
     )
@@ -155,6 +157,72 @@ def _draw_heatmap(
                 y1 + (row + 1) * cell_h,
             )
             draw.rectangle(cell, fill=color, outline=(255, 255, 255, 70), width=1)
+
+
+def _draw_territorial_control(
+    draw: ImageDraw.ImageDraw,
+    analysis: dict,
+    box: tuple[int, int, int, int],
+) -> None:
+    grid = analysis.get("grid", {})
+    rows = int(grid.get("rows", 1))
+    cols = int(grid.get("cols", 1))
+    if rows <= 0 or cols <= 0:
+        return
+    x1, y1, x2, y2 = box
+    cell_w = (x2 - x1) / cols
+    cell_h = (y2 - y1) / rows
+    colors = {
+        "blue": (38, 117, 255),
+        "yellow": (255, 215, 45),
+        "unknown": (245, 245, 245),
+    }
+    for zone in analysis.get("robot_zone_control", []):
+        if not isinstance(zone, dict):
+            continue
+        row = int(zone.get("row", -1))
+        col = int(zone.get("col", -1))
+        if row < 0 or col < 0 or row >= rows or col >= cols:
+            continue
+        leader = str(zone.get("leader", "unknown"))
+        base = colors.get(leader, colors["unknown"])
+        ratio = max(0.0, min(1.0, float(zone.get("leader_ratio", 0.0))))
+        alpha = int(35 + 80 * ratio)
+        cell = (
+            x1 + col * cell_w,
+            y1 + row * cell_h,
+            x1 + (col + 1) * cell_w,
+            y1 + (row + 1) * cell_h,
+        )
+        draw.rectangle(cell, fill=(*base, alpha), outline=(*base, 210), width=3)
+
+
+def _draw_robot_positions(
+    draw: ImageDraw.ImageDraw,
+    analysis: dict,
+    box: tuple[int, int, int, int],
+    field_length: float,
+    field_width: float,
+) -> None:
+    colors = {
+        "blue": (38, 117, 255, 170),
+        "yellow": (255, 215, 45, 170),
+        "unknown": (245, 245, 245, 130),
+    }
+    outline = (12, 24, 32, 160)
+    for record in analysis.get("robot_path", []):
+        if not record.get("inside_field", True):
+            continue
+        point = _project_record(record, box, field_length, field_width)
+        team = str(record.get("team") or "unknown")
+        color = colors.get(team, colors["unknown"])
+        radius = 7 if record.get("in_penalty_area") else 5
+        draw.ellipse(
+            (point[0] - radius, point[1] - radius, point[0] + radius, point[1] + radius),
+            fill=color,
+            outline=outline,
+            width=1,
+        )
 
 
 def _draw_trajectory(
@@ -202,6 +270,7 @@ def _draw_summary(
         f"Mean speed: {float(summary.get('mean_speed_m_s', 0.0)):.2f} m/s",
         f"Max speed: {float(summary.get('max_speed_m_s', 0.0)):.2f} m/s",
         f"Zones: {summary.get('unique_zones', 0)}",
+        f"Robots: {_format_counter(analysis.get('robot_summary', {}).get('samples_by_team', {}))}",
     ]
     y = y2 + 22
     for line in lines:
@@ -231,3 +300,9 @@ def _to_canvas(
     px = x1 + (point[0] / field_length) * (x2 - x1)
     py = y1 + (point[1] / field_width) * (y2 - y1)
     return (px, py)
+
+
+def _format_counter(values: dict) -> str:
+    if not values:
+        return "none"
+    return ", ".join(f"{key} {value}" for key, value in sorted(values.items()))

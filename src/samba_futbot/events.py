@@ -129,20 +129,22 @@ def detect_events(
                     )
                 )
         if ball and last_ball and frame_width:
-            dx = ball.centroid[0] - last_ball.centroid[0]
-            dy = ball.centroid[1] - last_ball.centroid[1]
             speed = distance(ball.centroid, last_ball.centroid)
             margin = frame_width * goal_x_margin_ratio
-            near_goal = ball.centroid[0] <= margin or ball.centroid[0] >= frame_width - margin
-            if near_goal and speed > 8:
+            target_side = _shot_target_side(last_ball, ball, frame_width, margin)
+            if target_side and speed > 8:
                 events.append(
                     Event(
                         frame_index=frame_index,
                         event_type="shot",
-                        description="Balon se desplaza rapido hacia zona de gol",
+                        description=f"Balon se desplaza rapido hacia porteria {target_side}",
                         confidence=0.5,
                         actors=[last_owner.track_id if last_owner else -1],
-                        metadata={"speed_px_frame": speed},
+                        metadata={
+                            "speed_px_frame": speed,
+                            "target_side": target_side,
+                            "shooting_team": _scoring_team_for_field_side(target_side),
+                        },
                     )
                 )
         if ball:
@@ -156,6 +158,8 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
     counts: dict[str, int] = {}
     scoreboard: dict[str, int] = {}
     goals_by_side: dict[str, int] = {}
+    shots_by_team: dict[str, int] = {}
+    shots_by_target_side: dict[str, int] = {}
     first_frame: int | None = None
     last_frame: int | None = None
     timeline = []
@@ -172,6 +176,11 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
             goal_side = str(metadata.get("goal_side", "unknown"))
             scoreboard[scoring_team] = scoreboard.get(scoring_team, 0) + 1
             goals_by_side[goal_side] = goals_by_side.get(goal_side, 0) + 1
+        if event_type == "shot":
+            shooting_team = str(metadata.get("shooting_team", "unknown"))
+            target_side = str(metadata.get("target_side", "unknown"))
+            shots_by_team[shooting_team] = shots_by_team.get(shooting_team, 0) + 1
+            shots_by_target_side[target_side] = shots_by_target_side.get(target_side, 0) + 1
         if event_type in {"goal_candidate", "shot", "pass", "interception", "collision"}:
             timeline.append(
                 {
@@ -195,6 +204,14 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
         "goals": {
             "total": counts.get("goal_candidate", 0),
             "by_goal_side": dict(sorted(goals_by_side.items())),
+        },
+        "shots": {
+            "total": counts.get("shot", 0),
+            "by_team": {
+                team: shots_by_team.get(team, 0)
+                for team in sorted(set(shots_by_team) | {"blue", "yellow"})
+            },
+            "by_target_side": dict(sorted(shots_by_target_side.items())),
         },
         "possession_changes": {
             "passes": counts.get("pass", 0),
@@ -229,6 +246,28 @@ def _scoring_team_for_goal(goal_side: str) -> str:
         return "yellow"
     if goal_side == "yellow":
         return "blue"
+    return "unknown"
+
+
+def _shot_target_side(
+    previous: Detection,
+    current: Detection,
+    frame_width: int,
+    margin: float,
+) -> str | None:
+    dx = current.centroid[0] - previous.centroid[0]
+    if current.centroid[0] <= margin and dx < 0:
+        return "left"
+    if current.centroid[0] >= frame_width - margin and dx > 0:
+        return "right"
+    return None
+
+
+def _scoring_team_for_field_side(side: str) -> str:
+    if side == "left":
+        return "blue"
+    if side == "right":
+        return "yellow"
     return "unknown"
 
 

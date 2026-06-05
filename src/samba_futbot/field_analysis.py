@@ -201,6 +201,7 @@ def analyze_field_tracks(
     grid_counts = [[0 for _ in range(grid_cols)] for _ in range(grid_rows)]
     for record in path:
         grid_counts[int(record["row"])][int(record["col"])] += 1
+    robot_zone_control = _robot_zone_control(robot_path)
 
     return {
         "trajectory_scope": "in_play_ball_field_coordinates",
@@ -228,6 +229,7 @@ def analyze_field_tracks(
             ),
         },
         "robot_summary": _robot_summary(robot_path, calibration),
+        "robot_zone_control": robot_zone_control,
         "zones": [
             {
                 "zone": zone,
@@ -287,6 +289,28 @@ def write_field_robot_csv(path: str | Path, analysis: dict) -> None:
         writer.writeheader()
         for record in analysis.get("robot_path", []):
             writer.writerow({field: record.get(field) for field in fields})
+
+
+def write_field_zone_control_csv(path: str | Path, analysis: dict) -> None:
+    output = ensure_parent(path)
+    fields = [
+        "zone",
+        "zone_label",
+        "row",
+        "col",
+        "samples",
+        "leader",
+        "leader_margin",
+        "leader_ratio",
+        "samples_by_team",
+    ]
+    with output.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        for record in analysis.get("robot_zone_control", []):
+            row = {field: record.get(field) for field in fields}
+            row["samples_by_team"] = _compact_counter(record.get("samples_by_team", {}))
+            writer.writerow(row)
 
 
 def _field_path_records(
@@ -412,13 +436,73 @@ def _count_robot_penalty_samples(
 
 def _robot_summary(robot_path: list[dict], calibration: FieldCalibration) -> dict:
     by_side = Counter(record["penalty_side"] for record in robot_path if record["penalty_side"])
+    by_team = Counter(record["team"] or "unknown" for record in robot_path)
+    team_zone_counts: dict[str, Counter] = {}
+    team_penalty_counts: dict[str, Counter] = {}
+    team_phase_counts: dict[str, Counter] = {}
+    for record in robot_path:
+        team = record["team"] or "unknown"
+        team_zone_counts.setdefault(team, Counter())[record["zone"]] += 1
+        phase = _team_phase_label(record["field_x_m"], calibration.field_length_m, team)
+        team_phase_counts.setdefault(team, Counter())[phase] += 1
+        if record["penalty_side"]:
+            team_penalty_counts.setdefault(team, Counter())[record["penalty_side"]] += 1
     return {
         "path_samples": len(robot_path),
         "inside_field_samples": sum(1 for record in robot_path if record["inside_field"]),
         "penalty_area_samples": sum(by_side.values()),
         "penalty_area_samples_by_side": dict(sorted(by_side.items())),
+        "samples_by_team": dict(sorted(by_team.items())),
+        "zone_samples_by_team": {
+            team: dict(sorted(counts.items())) for team, counts in sorted(team_zone_counts.items())
+        },
+        "phase_samples_by_team": {
+            team: dict(sorted(counts.items())) for team, counts in sorted(team_phase_counts.items())
+        },
+        "phase_ratios_by_team": {
+            team: _phase_ratios(counts) for team, counts in sorted(team_phase_counts.items())
+        },
+        "attacking_pressure_by_team": {
+            team: _phase_ratio(counts, "attacking")
+            for team, counts in sorted(team_phase_counts.items())
+        },
+        "penalty_area_samples_by_team": {
+            team: dict(sorted(counts.items())) for team, counts in sorted(team_penalty_counts.items())
+        },
         "neutral_points": [list(point) for point in calibration.neutral_points()],
     }
+
+
+def _robot_zone_control(robot_path: list[dict]) -> list[dict]:
+    by_zone: dict[str, list[dict]] = {}
+    for record in robot_path:
+        if not record["inside_field"]:
+            continue
+        by_zone.setdefault(record["zone"], []).append(record)
+
+    zones = []
+    for zone, records in sorted(by_zone.items()):
+        counts = Counter(record["team"] or "unknown" for record in records)
+        total = sum(counts.values())
+        ranked = counts.most_common()
+        leader = ranked[0][0] if ranked else "none"
+        leader_count = ranked[0][1] if ranked else 0
+        runner_up = ranked[1][1] if len(ranked) > 1 else 0
+        first = records[0]
+        zones.append(
+            {
+                "zone": zone,
+                "zone_label": first["zone_label"],
+                "row": first["row"],
+                "col": first["col"],
+                "samples": total,
+                "samples_by_team": dict(sorted(counts.items())),
+                "leader": leader,
+                "leader_margin": leader_count - runner_up,
+                "leader_ratio": leader_count / total if total else 0.0,
+            }
+        )
+    return zones
 
 
 def _field_speeds(path: list[dict], *, fps: float | None) -> list[float]:
@@ -527,6 +611,37 @@ def _third_label(value: float, limit: float) -> str:
     if ratio < 2 / 3:
         return "middle"
     return "attacking"
+
+
+def _team_phase_label(value: float, limit: float, team: str) -> str:
+    label = _third_label(value, limit)
+    if team == "blue":
+        if label == "defensive":
+            return "attacking"
+        if label == "attacking":
+            return "defensive"
+    return label
+
+
+def _phase_ratios(counts: Counter) -> dict[str, float]:
+    total = sum(counts.values())
+    if total <= 0:
+        return {}
+    return {
+        phase: counts.get(phase, 0) / total
+        for phase in ("defensive", "middle", "attacking")
+    }
+
+
+def _phase_ratio(counts: Counter, phase: str) -> float:
+    ratios = _phase_ratios(counts)
+    return ratios.get(phase, 0.0)
+
+
+def _compact_counter(values: object) -> str:
+    if not isinstance(values, dict) or not values:
+        return ""
+    return ";".join(f"{key}:{value}" for key, value in sorted(values.items()))
 
 
 def _lane_label(value: float, limit: float) -> str:

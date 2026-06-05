@@ -13,6 +13,7 @@ def write_run_report(
     metrics_path: str | Path | None = None,
     events_path: str | Path | None = None,
     field_analysis_path: str | Path | None = None,
+    qa_path: str | Path | None = None,
     demo_path: str | Path | None = None,
     field_map_path: str | Path | None = None,
 ) -> Path:
@@ -25,6 +26,8 @@ def write_run_report(
         lines.extend(_events_section(events_path))
     if field_analysis_path:
         lines.extend(_field_section(field_analysis_path, field_map_path=field_map_path))
+    if qa_path:
+        lines.extend(_qa_section(qa_path))
 
     output = ensure_parent(out_path)
     output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
@@ -45,6 +48,7 @@ def _metrics_section(path: str | Path) -> list[str]:
         f"- Ball in-play coverage: `{ball.get('in_play_coverage_ratio', 0.0):.1%}`",
         f"- Possession coverage: `{possession.get('coverage_ratio', 0.0):.1%}`",
         f"- Possession by team: `{_format_possession_by_team(possession)}`",
+        f"- Possession dominance: `{_format_possession_dominance(possession)}`",
         f"- Longest possession: `{_format_longest_possession(possession)}`",
         f"- Mean ball speed: `{motion.get('mean_speed_px_second', 0.0):.1f} px/s`",
         f"- Max ball speed: `{motion.get('max_speed_px_second', 0.0):.1f} px/s`",
@@ -66,6 +70,10 @@ def _events_section(path: str | Path) -> list[str]:
         "- Possession changes: "
         f"`{summary.get('possession_changes', {}).get('passes', 0)} passes, "
         f"{summary.get('possession_changes', {}).get('interceptions', 0)} interceptions`"
+    )
+    lines.append(
+        "- Shots by team: "
+        f"`{_format_counter(summary.get('shots', {}).get('by_team', {}))}`"
     )
     for event_type, count in sorted(counts.items()):
         lines.append(f"- `{event_type}`: `{count}`")
@@ -94,10 +102,22 @@ def _format_longest_possession(possession: dict) -> str:
     )
 
 
+def _format_possession_dominance(possession: dict) -> str:
+    dominance = possession.get("dominance")
+    if not isinstance(dominance, dict) or dominance.get("team") in {None, "none"}:
+        return "none"
+    return (
+        f"{dominance.get('team', 'unknown')}: "
+        f"{float(dominance.get('ratio', 0.0)):.1%}, "
+        f"margin {float(dominance.get('margin_ratio', 0.0)):.1%}"
+    )
+
+
 def _field_section(path: str | Path, *, field_map_path: str | Path | None) -> list[str]:
     analysis = read_json(path)
     summary = analysis.get("summary", {})
     robot_summary = analysis.get("robot_summary", {})
+    zone_control = _zone_control_summary(analysis.get("robot_zone_control", []))
     field = analysis.get("calibration", {}).get("field", {})
     lines = [
         "## Field Analysis",
@@ -109,6 +129,10 @@ def _field_section(path: str | Path, *, field_map_path: str | Path | None) -> li
         f"- Max metric speed: `{summary.get('max_speed_m_s', 0.0):.2f} m/s`",
         f"- Goal-zone entries: `{summary.get('goal_zone_entries', 0)}`",
         f"- Robot penalty-area samples: `{robot_summary.get('penalty_area_samples', 0)}`",
+        f"- Robot samples by team: `{_format_counter(robot_summary.get('samples_by_team', {}))}`",
+        f"- Robot phases by team: `{_format_nested_counter(robot_summary.get('phase_samples_by_team', {}))}`",
+        f"- Attacking pressure by team: `{_format_ratio_counter(robot_summary.get('attacking_pressure_by_team', {}))}`",
+        f"- Territorial control by leader: `{_format_counter(zone_control)}`",
     ]
     if field_map_path:
         lines.append(f"- Tactical map: `{field_map_path}`")
@@ -120,3 +144,71 @@ def _field_section(path: str | Path, *, field_map_path: str | Path | None) -> li
         ]
     )
     return lines
+
+
+def _qa_section(path: str | Path) -> list[str]:
+    report = read_json(path)
+    summary = report.get("summary", {})
+    lines = [
+        "## Run QA",
+        "",
+        f"- Status: `{report.get('status', 'unknown')}`",
+        f"- Quality score: `{report.get('quality_score', 0)}`",
+        f"- Ball coverage: `{summary.get('ball_in_play_coverage_ratio', 0.0):.1%}`",
+        f"- Max ball jump: `{summary.get('max_ball_speed_px_frame', 0.0):.1f} px/frame`",
+        f"- Unknown-team robot ratio: `{summary.get('unknown_team_ratio', 0.0):.1%}`",
+        "",
+        "### QA Issues",
+        "",
+    ]
+    issues = report.get("issues", [])
+    if issues:
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            lines.append(
+                f"- `{issue.get('severity', 'info')}` `{issue.get('code', 'unknown')}`: "
+                f"{issue.get('message', '')}"
+            )
+    else:
+        lines.append("- No automatic QA issues were detected.")
+    lines.append("")
+    return lines
+
+
+def _format_counter(values: dict) -> str:
+    if not values:
+        return "none"
+    return ", ".join(f"{key}: {value}" for key, value in sorted(values.items()))
+
+
+def _format_nested_counter(values: dict) -> str:
+    if not values:
+        return "none"
+    parts = []
+    for key, inner in sorted(values.items()):
+        if isinstance(inner, dict):
+            parts.append(f"{key} ({_format_counter(inner)})")
+        else:
+            parts.append(f"{key}: {inner}")
+    return "; ".join(parts)
+
+
+def _format_ratio_counter(values: dict) -> str:
+    if not values:
+        return "none"
+    return ", ".join(
+        f"{key}: {float(value):.1%}"
+        for key, value in sorted(values.items())
+        if isinstance(value, int | float)
+    )
+
+
+def _zone_control_summary(zones: list) -> dict:
+    counts: dict[str, int] = {}
+    for zone in zones:
+        if not isinstance(zone, dict):
+            continue
+        leader = str(zone.get("leader", "unknown"))
+        counts[leader] = counts.get(leader, 0) + 1
+    return counts
