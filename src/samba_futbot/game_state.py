@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Iterable
 
+from .io_utils import read_json
 from .play_state import BALL_CLASSES, FIELD_CLASSES, ROBOT_CLASSES, ball_in_play, distance, group_by_frame
 from .types import Detection, Event
 
@@ -251,6 +253,32 @@ def play_mask_from_segments(segments: Iterable[GameSegment | dict]) -> set[int]:
             continue
         playable.update(range(int(record["start_frame"]), int(record["end_frame"]) + 1))
     return playable
+
+
+def playable_frames_from_game_state(path: str | Path) -> set[int]:
+    data = read_json(path)
+    if isinstance(data, dict):
+        if isinstance(data.get("segments"), list):
+            return play_mask_from_segments(data["segments"])
+        if isinstance(data.get("states"), list):
+            return {
+                int(state["frame_index"])
+                for state in data["states"]
+                if isinstance(state, dict) and state.get("state") == "in_play"
+            }
+    if isinstance(data, list):
+        return play_mask_from_segments(data)
+    raise ValueError(f"Expected game-state JSON object or segment list: {path}")
+
+
+def filter_detections_to_playable_frames(
+    detections: Iterable[Detection],
+    playable_frames: set[int] | None,
+) -> list[Detection]:
+    detections_list = list(detections)
+    if playable_frames is None:
+        return detections_list
+    return [det for det in detections_list if det.frame_index in playable_frames]
 
 
 def _human_intervention(

@@ -43,6 +43,14 @@ class ReportingTest(unittest.TestCase):
                             "seconds": 0.4,
                         },
                     },
+                    "game_state": {
+                        "enabled": True,
+                        "frames": 10,
+                        "playable_frames": 8,
+                        "playable_ratio": 0.8,
+                        "states": {"in_play": 8, "dead_ball": 2},
+                        "external_events": {"human_intervention": 1},
+                    },
                 },
             )
             write_json(
@@ -135,6 +143,8 @@ class ReportingTest(unittest.TestCase):
         self.assertIn("Longest possession", text)
         self.assertIn("Possession dominance", text)
         self.assertIn("blue #4", text)
+        self.assertIn("Game-state playable frames", text)
+        self.assertIn("human_intervention", text)
         self.assertIn("Candidate score", text)
         self.assertIn("blue 0 - 1 yellow", text)
         self.assertIn("Shots by team", text)

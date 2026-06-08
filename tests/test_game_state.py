@@ -4,9 +4,14 @@ from samba_futbot.game_state import (
     classify_frame_states,
     detect_external_events,
     detect_game_segments,
+    filter_detections_to_playable_frames,
     play_mask_from_segments,
+    playable_frames_from_game_state,
 )
+from samba_futbot.io_utils import write_json
 from samba_futbot.types import Detection
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 class GameStateTest(unittest.TestCase):
@@ -79,6 +84,31 @@ class GameStateTest(unittest.TestCase):
 
         self.assertEqual([segment.state for segment in segments], ["in_play", "dead_ball"])
         self.assertEqual(play_mask, {0})
+
+    def test_playable_frames_can_be_loaded_from_game_state_json(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "game-state.json"
+            write_json(
+                path,
+                {
+                    "segments": [
+                        {"state": "in_play", "start_frame": 0, "end_frame": 1},
+                        {"state": "dead_ball", "start_frame": 2, "end_frame": 3},
+                    ]
+                },
+            )
+
+            frames = playable_frames_from_game_state(path)
+            filtered = filter_detections_to_playable_frames(
+                [
+                    Detection(0, "ball", 1.0, (0, 0, 1, 1)),
+                    Detection(2, "ball", 1.0, (0, 0, 1, 1)),
+                ],
+                frames,
+            )
+
+        self.assertEqual(frames, {0, 1})
+        self.assertEqual([det.frame_index for det in filtered], [0])
 
 
 if __name__ == "__main__":

@@ -35,7 +35,9 @@ from .game_state import (
     classify_frame_states,
     detect_external_events,
     detect_game_segments,
+    filter_detections_to_playable_frames,
     play_mask_from_segments,
+    playable_frames_from_game_state,
 )
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
@@ -228,6 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--qa-report-out", default=None)
     process.add_argument("--run-report-out", default=None)
     process.add_argument("--run-manifest-out", default=None)
+    _add_pipeline_game_state_args(process)
     process.add_argument("--field-grid-cols", type=int, default=6)
     process.add_argument("--field-grid-rows", type=int, default=4)
     process.add_argument(
@@ -307,6 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--qa-report-out", default=None)
     top_camera.add_argument("--run-report-out", default=None)
     top_camera.add_argument("--run-manifest-out", default=None)
+    _add_pipeline_game_state_args(top_camera)
     top_camera.add_argument("--field-grid-cols", type=int, default=6)
     top_camera.add_argument("--field-grid-rows", type=int, default=4)
     top_camera.add_argument(
@@ -341,6 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
     field_analysis.add_argument("--video", default=None)
     field_analysis.add_argument("--config", default="config/default.yml")
     field_analysis.add_argument("--out", required=True)
+    field_analysis.add_argument("--game-state", default=None)
     field_analysis.add_argument("--csv-out", default=None)
     field_analysis.add_argument("--robot-csv-out", default=None)
     field_analysis.add_argument("--zone-control-csv-out", default=None)
@@ -434,6 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
     events = sub.add_parser("events", help="Detectar eventos de juego.")
     events.add_argument("--tracks", required=True)
     events.add_argument("--out", required=True)
+    events.add_argument("--game-state", default=None)
     events.add_argument("--summary-out", default=None)
     events.add_argument("--possession-radius-px", type=float, default=90)
     events.add_argument("--collision-radius-px", type=float, default=55)
@@ -468,6 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
     metrics = sub.add_parser("metrics", help="Calcular metricas operativas.")
     metrics.add_argument("--tracks", required=True)
     metrics.add_argument("--out", required=True)
+    metrics.add_argument("--game-state", default=None)
     metrics.add_argument("--fps", type=float, default=None)
     metrics.add_argument("--possession-radius-px", type=float, default=90.0)
     metrics.add_argument("--in-play-field-margin-px", type=float, default=8.0)
@@ -493,6 +500,28 @@ def build_parser() -> argparse.ArgumentParser:
     info.add_argument("--video", required=True)
     info.set_defaults(func=cmd_video_info)
     return parser
+
+
+def _add_pipeline_game_state_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--generate-game-state",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generar estado de juego y eventos externos desde tracks.",
+    )
+    parser.add_argument(
+        "--filter-by-game-state",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Calcular metricas/eventos/field-analysis solo con frames in_play.",
+    )
+    parser.add_argument("--game-state-out", default=None)
+    parser.add_argument("--external-events-out", default=None)
+    parser.add_argument("--game-segments-out", default=None)
+    parser.add_argument("--game-state-missing-ball-frames", type=int, default=12)
+    parser.add_argument("--robot-removed-after-frames", type=int, default=18)
+    parser.add_argument("--robot-disabled-after-frames", type=int, default=45)
+    parser.add_argument("--stationary-threshold-px", type=float, default=2.0)
 
 
 def cmd_index_drive(args: argparse.Namespace) -> None:
@@ -908,15 +937,32 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         if args.in_play_field_margin_px is not None
         else float(analysis_config.get("in_play_field_margin_px", 8))
     )
+    game_state_result = _write_pipeline_game_state(
+        args,
+        tracked=tracked,
+        results_dir=results_dir,
+        stem=stem,
+        possession_radius_px=possession_radius_px,
+        field_margin_px=field_margin_px,
+    )
+    analysis_tracks, analysis_tracks_out = _analysis_tracks_for_pipeline(
+        args,
+        tracked=tracked,
+        tracks_out=tracks_out,
+        game_state_result=game_state_result,
+        results_dir=results_dir,
+        stem=stem,
+    )
     summary = summarize_tracks(
-        tracked,
+        analysis_tracks,
         fps=fps,
         possession_radius_px=possession_radius_px,
         field_margin_px=field_margin_px,
     )
+    summary["game_state"] = game_state_result["summary"]
     write_json(metrics_out, summary)
     events = detect_events(
-        tracked,
+        analysis_tracks,
         possession_radius_px=possession_radius_px,
         collision_radius_px=(
             args.collision_radius_px
@@ -933,7 +979,16 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     )
     write_events(events_out, events)
     event_summary = summarize_events(events)
+    event_summary["external_events"] = len(game_state_result["external_events"])
+    event_summary["game_state"] = game_state_result["summary"]
     write_json(event_summary_out, event_summary)
+    all_events_out = _write_combined_events_for_pipeline(
+        results_dir=results_dir,
+        stem=stem,
+        suffix=args.suffix,
+        events=events,
+        external_events=game_state_result["external_events"],
+    )
     field_analysis_result = None
     field_analysis_out = None
     field_trajectory_csv = None
@@ -962,7 +1017,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-field-map.png"
         )
         field_analysis_result = analyze_field_tracks(
-            tracked,
+            analysis_tracks,
             load_field_calibration(args.field_calibration),
             fps=fps,
             possession_radius_px=possession_radius_px,
@@ -980,8 +1035,8 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     rendered_videos = _render_pipeline_videos(
         args,
         video_path=args.video,
-        tracks_out=tracks_out,
-        events_out=events_out,
+        tracks_out=analysis_tracks_out,
+        events_out=all_events_out or events_out,
         results_dir=results_dir,
         stem=stem,
         duration_seconds=duration_seconds,
@@ -1015,8 +1070,13 @@ def cmd_process_video(args: argparse.Namespace) -> None:
             "detections": merged_out,
             "color_goals": color_goals_out if color_goal_detections is not None else None,
             "tracks": tracks_out,
+            "in_play_tracks": analysis_tracks_out if analysis_tracks_out != tracks_out else None,
             "metrics": metrics_out,
             "events": events_out,
+            "all_events": all_events_out,
+            "external_events": game_state_result["external_events_out"],
+            "game_state": game_state_result["game_state_out"],
+            "game_segments": game_state_result["segments_out"],
             "event_summary": event_summary_out,
             "field_analysis": field_analysis_out,
             "field_trajectory_csv": field_trajectory_csv,
@@ -1046,6 +1106,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                 "field_prompt_frames": field_prompt_frames,
                 "ball_prompt_frames": ball_prompt_frames,
                 "detections": len(merged),
+                "analysis_detections": len(analysis_tracks),
                 "edge_ball_filter_removed": edge_ball_filter_removed,
                 "goal_constraints_removed": goal_constraints_removed,
                 "tracks": len({det.track_id for det in tracked if det.track_id is not None}),
@@ -1053,8 +1114,27 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "detections": str(merged_out),
                     "color_goals": str(color_goals_out) if color_goal_detections is not None else None,
                     "tracks": str(tracks_out),
+                    "in_play_tracks": (
+                        str(analysis_tracks_out) if analysis_tracks_out != tracks_out else None
+                    ),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
+                    "all_events": str(all_events_out) if all_events_out else None,
+                    "external_events": (
+                        str(game_state_result["external_events_out"])
+                        if game_state_result["external_events_out"]
+                        else None
+                    ),
+                    "game_state": (
+                        str(game_state_result["game_state_out"])
+                        if game_state_result["game_state_out"]
+                        else None
+                    ),
+                    "game_segments": (
+                        str(game_state_result["segments_out"])
+                        if game_state_result["segments_out"]
+                        else None
+                    ),
                     "event_summary": str(event_summary_out),
                     "field_analysis": str(field_analysis_out) if field_analysis_out else None,
                     "field_trajectory_csv": (
@@ -1082,6 +1162,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     ),
                 },
                 "metrics": summary,
+                "game_state": game_state_result["summary"],
                 "field_analysis_summary": (
                     field_analysis_result.get("summary") if field_analysis_result else None
                 ),
@@ -1248,15 +1329,32 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         if args.in_play_field_margin_px is not None
         else float(analysis_config.get("in_play_field_margin_px", 8))
     )
+    game_state_result = _write_pipeline_game_state(
+        args,
+        tracked=tracked,
+        results_dir=results_dir,
+        stem=stem,
+        possession_radius_px=possession_radius_px,
+        field_margin_px=field_margin_px,
+    )
+    analysis_tracks, analysis_tracks_out = _analysis_tracks_for_pipeline(
+        args,
+        tracked=tracked,
+        tracks_out=tracks_out,
+        game_state_result=game_state_result,
+        results_dir=results_dir,
+        stem=stem,
+    )
     summary = summarize_tracks(
-        tracked,
+        analysis_tracks,
         fps=fps,
         possession_radius_px=possession_radius_px,
         field_margin_px=field_margin_px,
     )
+    summary["game_state"] = game_state_result["summary"]
     write_json(metrics_out, summary)
     events = detect_events(
-        tracked,
+        analysis_tracks,
         possession_radius_px=possession_radius_px,
         collision_radius_px=(
             args.collision_radius_px
@@ -1273,7 +1371,16 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     )
     write_events(events_out, events)
     event_summary = summarize_events(events)
+    event_summary["external_events"] = len(game_state_result["external_events"])
+    event_summary["game_state"] = game_state_result["summary"]
     write_json(event_summary_out, event_summary)
+    all_events_out = _write_combined_events_for_pipeline(
+        results_dir=results_dir,
+        stem=stem,
+        suffix=args.suffix,
+        events=events,
+        external_events=game_state_result["external_events"],
+    )
 
     field_analysis_result = None
     field_analysis_out = None
@@ -1303,7 +1410,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             or results_dir / "field_analysis" / f"{stem}-{args.suffix}-field-map.png"
         )
         field_analysis_result = analyze_field_tracks(
-            tracked,
+            analysis_tracks,
             load_field_calibration(args.field_calibration),
             fps=fps,
             possession_radius_px=possession_radius_px,
@@ -1321,8 +1428,8 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     rendered_videos = _render_pipeline_videos(
         args,
         video_path=args.video,
-        tracks_out=tracks_out,
-        events_out=events_out,
+        tracks_out=analysis_tracks_out,
+        events_out=all_events_out or events_out,
         results_dir=results_dir,
         stem=stem,
         duration_seconds=duration_seconds,
@@ -1364,8 +1471,13 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             "detections": merged_out,
             "refined_detections": refined_out,
             "tracks": tracks_out,
+            "in_play_tracks": analysis_tracks_out if analysis_tracks_out != tracks_out else None,
             "metrics": metrics_out,
             "events": events_out,
+            "all_events": all_events_out,
+            "external_events": game_state_result["external_events_out"],
+            "game_state": game_state_result["game_state_out"],
+            "game_segments": game_state_result["segments_out"],
             "event_summary": event_summary_out,
             "field_analysis": field_analysis_out,
             "field_trajectory_csv": field_trajectory_csv,
@@ -1410,6 +1522,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                 "ball_detections_after_refine": ball_out,
                 "goal_constraints_removed": goal_constraints_removed,
                 "detections": len(refined),
+                "analysis_detections": len(analysis_tracks),
                 "tracks": len({det.track_id for det in tracked if det.track_id is not None}),
                 "paths": {
                     "field_detections": str(field_out / "detections.jsonl"),
@@ -1423,8 +1536,27 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     "detections": str(merged_out),
                     "refined_detections": str(refined_out),
                     "tracks": str(tracks_out),
+                    "in_play_tracks": (
+                        str(analysis_tracks_out) if analysis_tracks_out != tracks_out else None
+                    ),
                     "metrics": str(metrics_out),
                     "events": str(events_out),
+                    "all_events": str(all_events_out) if all_events_out else None,
+                    "external_events": (
+                        str(game_state_result["external_events_out"])
+                        if game_state_result["external_events_out"]
+                        else None
+                    ),
+                    "game_state": (
+                        str(game_state_result["game_state_out"])
+                        if game_state_result["game_state_out"]
+                        else None
+                    ),
+                    "game_segments": (
+                        str(game_state_result["segments_out"])
+                        if game_state_result["segments_out"]
+                        else None
+                    ),
                     "event_summary": str(event_summary_out),
                     "field_analysis": str(field_analysis_out) if field_analysis_out else None,
                     "field_trajectory_csv": (
@@ -1452,6 +1584,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     ),
                 },
                 "metrics": summary,
+                "game_state": game_state_result["summary"],
                 "field_analysis_summary": (
                     field_analysis_result.get("summary") if field_analysis_result else None
                 ),
@@ -1488,6 +1621,133 @@ def _write_pipeline_qa(
     write_quality_json(qa_out, report)
     write_quality_markdown(qa_report_out, report)
     return qa_out, qa_report_out, report
+
+
+def _write_pipeline_game_state(
+    args: argparse.Namespace,
+    *,
+    tracked: list,
+    results_dir: Path,
+    stem: str,
+    possession_radius_px: float,
+    field_margin_px: float,
+) -> dict:
+    if not getattr(args, "generate_game_state", True):
+        return {
+            "game_state_out": None,
+            "segments_out": None,
+            "external_events_out": None,
+            "playable_frames": None,
+            "external_events": [],
+            "summary": {"enabled": False},
+        }
+
+    states = classify_frame_states(
+        tracked,
+        possession_radius_px=possession_radius_px,
+        field_margin_px=field_margin_px,
+        missing_ball_frames=args.game_state_missing_ball_frames,
+        robot_removed_after_frames=args.robot_removed_after_frames,
+        robot_disabled_after_frames=args.robot_disabled_after_frames,
+        stationary_threshold_px=args.stationary_threshold_px,
+    )
+    segments = detect_game_segments(states)
+    external_events = detect_external_events(states)
+    playable_frames = play_mask_from_segments(segments)
+    summary = _game_state_summary(states, segments, external_events, playable_frames)
+
+    game_state_out = Path(
+        args.game_state_out or results_dir / "events" / f"{stem}-{args.suffix}-game-state.json"
+    )
+    segments_out = Path(
+        args.game_segments_out
+        or results_dir / "events" / f"{stem}-{args.suffix}-game-segments.json"
+    )
+    external_events_out = Path(
+        args.external_events_out
+        or results_dir / "events" / f"{stem}-{args.suffix}-external-events.json"
+    )
+
+    write_json(
+        game_state_out,
+        {
+            "schema": "samba_futbot.game_state.v1",
+            "summary": summary,
+            "states": [state.to_record() for state in states],
+            "segments": [segment.to_record() for segment in segments],
+            "events": [event.to_record() for event in external_events],
+        },
+    )
+    write_json(segments_out, [segment.to_record() for segment in segments])
+    write_events(external_events_out, external_events)
+
+    return {
+        "game_state_out": game_state_out,
+        "segments_out": segments_out,
+        "external_events_out": external_events_out,
+        "playable_frames": playable_frames,
+        "external_events": external_events,
+        "summary": summary,
+    }
+
+
+def _analysis_tracks_for_pipeline(
+    args: argparse.Namespace,
+    *,
+    tracked: list,
+    tracks_out: Path,
+    game_state_result: dict,
+    results_dir: Path,
+    stem: str,
+) -> tuple[list, Path]:
+    playable_frames = game_state_result.get("playable_frames")
+    if not getattr(args, "filter_by_game_state", True) or playable_frames is None:
+        return tracked, tracks_out
+
+    filtered = filter_detections_to_playable_frames(tracked, playable_frames)
+    filtered_out = results_dir / "tracks" / f"{stem}-{args.suffix}-in-play-tracks.jsonl"
+    write_detections(filtered_out, filtered)
+    return filtered, filtered_out
+
+
+def _write_combined_events_for_pipeline(
+    *,
+    results_dir: Path,
+    stem: str,
+    suffix: str,
+    events: list,
+    external_events: list,
+) -> Path | None:
+    if not external_events:
+        return None
+    out = results_dir / "events" / f"{stem}-{suffix}-all-events.json"
+    write_events(out, [*events, *external_events])
+    return out
+
+
+def _game_state_summary(
+    states: list,
+    segments: list,
+    external_events: list,
+    playable_frames: set[int],
+) -> dict:
+    state_counts: dict[str, int] = {}
+    for state in states:
+        state_counts[state.state] = state_counts.get(state.state, 0) + 1
+    event_counts: dict[str, int] = {}
+    for event in external_events:
+        event_counts[event.event_type] = event_counts.get(event.event_type, 0) + 1
+    total_frames = len(states)
+    playable_count = len(playable_frames)
+    return {
+        "enabled": True,
+        "frames": total_frames,
+        "playable_frames": playable_count,
+        "playable_ratio": playable_count / total_frames if total_frames else 0.0,
+        "states": state_counts,
+        "segments": len(segments),
+        "external_events": event_counts,
+    }
 
 
 def _write_pipeline_run_report(
@@ -1879,8 +2139,16 @@ def _parse_hsv_bound(value: str | None, *, fallback: object) -> tuple[int, int, 
     return (items[0], items[1], items[2])
 
 
+def _filter_by_game_state(detections: list, game_state_path: str | None) -> list:
+    if not game_state_path:
+        return detections
+    playable_frames = playable_frames_from_game_state(game_state_path)
+    return filter_detections_to_playable_frames(detections, playable_frames)
+
+
 def cmd_field_analysis(args: argparse.Namespace) -> None:
     detections = read_detections(args.tracks)
+    detections = _filter_by_game_state(detections, args.game_state)
     if args.video:
         detections = _assign_teams_for_process(args.video, detections, load_config(args.config))
     analysis = analyze_field_tracks(
@@ -1910,6 +2178,7 @@ def cmd_field_analysis(args: argparse.Namespace) -> None:
                 "robot_csv_out": args.robot_csv_out,
                 "zone_control_csv_out": args.zone_control_csv_out,
                 "map_out": args.map_out,
+                "game_state": args.game_state,
                 "summary": analysis["summary"],
                 "robot_summary": analysis["robot_summary"],
             },
@@ -2038,8 +2307,9 @@ def cmd_track(args: argparse.Namespace) -> None:
 
 
 def cmd_events(args: argparse.Namespace) -> None:
+    detections = _filter_by_game_state(read_detections(args.tracks), args.game_state)
     events = detect_events(
-        read_detections(args.tracks),
+        detections,
         possession_radius_px=args.possession_radius_px,
         collision_radius_px=args.collision_radius_px,
         frame_width=args.frame_width,
@@ -2054,6 +2324,7 @@ def cmd_events(args: argparse.Namespace) -> None:
             {
                 "events_out": args.out,
                 "summary_out": args.summary_out,
+                "game_state": args.game_state,
                 "events": len(events),
                 "summary": summary,
             },
@@ -2118,12 +2389,18 @@ def cmd_game_state(args: argparse.Namespace) -> None:
 
 
 def cmd_metrics(args: argparse.Namespace) -> None:
+    detections = _filter_by_game_state(read_detections(args.tracks), args.game_state)
     summary = summarize_tracks(
-        read_detections(args.tracks),
+        detections,
         fps=args.fps,
         possession_radius_px=args.possession_radius_px,
         field_margin_px=args.in_play_field_margin_px,
     )
+    if args.game_state:
+        summary["game_state"] = {
+            "path": args.game_state,
+            "playable_detections": len(detections),
+        }
     write_json(args.out, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

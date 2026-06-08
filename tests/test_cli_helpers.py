@@ -8,6 +8,7 @@ from samba_futbot.cli import (
     _context_classes,
     _frame_anchors,
     _git_snapshot,
+    _game_state_summary,
     _jsonable,
     _resolve_ball_color_profile,
     _runtime_snapshot,
@@ -42,6 +43,9 @@ class CliHelpersTest(unittest.TestCase):
         self.assertTrue(args.render_analysis)
         self.assertFalse(args.analysis_freeze)
         self.assertEqual(args.freeze_seconds, 1.5)
+        self.assertTrue(args.generate_game_state)
+        self.assertTrue(args.filter_by_game_state)
+        self.assertEqual(args.game_state_missing_ball_frames, 12)
 
     def test_process_top_camera_can_disable_ball_sources(self):
         args = build_parser().parse_args(
@@ -95,6 +99,36 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.run_report_out, "report.md")
         self.assertEqual(args.run_manifest_out, "manifest.json")
+
+    def test_process_pipelines_accept_game_state_outputs(self):
+        for command in ("process-video", "process-top-camera"):
+            args = build_parser().parse_args(
+                [
+                    command,
+                    "--video",
+                    "clip.mp4",
+                    "--no-generate-game-state",
+                    "--no-filter-by-game-state",
+                    "--game-state-out",
+                    "game-state.json",
+                    "--external-events-out",
+                    "external-events.json",
+                    "--game-segments-out",
+                    "segments.json",
+                    "--game-state-missing-ball-frames",
+                    "7",
+                    "--robot-disabled-after-frames",
+                    "30",
+                ]
+            )
+
+            self.assertFalse(args.generate_game_state)
+            self.assertFalse(args.filter_by_game_state)
+            self.assertEqual(args.game_state_out, "game-state.json")
+            self.assertEqual(args.external_events_out, "external-events.json")
+            self.assertEqual(args.game_segments_out, "segments.json")
+            self.assertEqual(args.game_state_missing_ball_frames, 7)
+            self.assertEqual(args.robot_disabled_after_frames, 30)
 
     def test_context_classes_can_disable_goals(self):
         parser = build_parser()
@@ -264,6 +298,8 @@ class CliHelpersTest(unittest.TestCase):
                 "config/default.yml",
                 "--out",
                 "analysis.json",
+                "--game-state",
+                "game-state.json",
                 "--robot-csv-out",
                 "robots.csv",
                 "--zone-control-csv-out",
@@ -284,6 +320,7 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.video, "clip.mp4")
         self.assertEqual(args.config, "config/default.yml")
         self.assertEqual(args.map_out, "field-map.png")
+        self.assertEqual(args.game_state, "game-state.json")
         self.assertEqual(args.robot_csv_out, "robots.csv")
         self.assertEqual(args.zone_control_csv_out, "zone-control.csv")
         self.assertEqual(args.robot_anchor, "centroid")
@@ -414,6 +451,33 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.events, "events.json")
         self.assertEqual(args.out, "summary.json")
 
+    def test_events_and_metrics_accept_game_state_filter(self):
+        event_args = build_parser().parse_args(
+            [
+                "events",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "events.json",
+                "--game-state",
+                "game-state.json",
+            ]
+        )
+        metric_args = build_parser().parse_args(
+            [
+                "metrics",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "metrics.json",
+                "--game-state",
+                "game-state.json",
+            ]
+        )
+
+        self.assertEqual(event_args.game_state, "game-state.json")
+        self.assertEqual(metric_args.game_state, "game-state.json")
+
     def test_game_state_command_parses_outputs_and_thresholds(self):
         args = build_parser().parse_args(
             [
@@ -436,6 +500,28 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.events_out, "external-events.json")
         self.assertEqual(args.segments_out, "segments.json")
         self.assertEqual(args.missing_ball_frames, 8)
+
+    def test_game_state_summary_counts_playable_and_external_events(self):
+        class State:
+            def __init__(self, state):
+                self.state = state
+
+        class Event:
+            def __init__(self, event_type):
+                self.event_type = event_type
+
+        summary = _game_state_summary(
+            [State("in_play"), State("dead_ball"), State("in_play")],
+            [object(), object()],
+            [Event("human_intervention"), Event("human_intervention")],
+            {0, 2},
+        )
+
+        self.assertEqual(summary["frames"], 3)
+        self.assertEqual(summary["playable_frames"], 2)
+        self.assertAlmostEqual(summary["playable_ratio"], 2 / 3)
+        self.assertEqual(summary["states"]["in_play"], 2)
+        self.assertEqual(summary["external_events"]["human_intervention"], 2)
 
     def test_render_demo_command_accepts_events_overlay(self):
         args = build_parser().parse_args(

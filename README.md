@@ -254,10 +254,13 @@ Que hace internamente:
 8. Fusiona campo, robots, porterias y candidatos de pelota.
 9. Refina la pelota con `refine-ball`.
 10. Genera tracks y asigna equipo de robots por color.
-11. Calcula metricas y posesion por equipo.
-12. Detecta eventos candidatos, incluyendo goles visuales si hay porteria.
-13. Renderiza dos demos MP4: narrativa del partido y analisis tecnico.
-14. Genera QA automatico.
+11. Clasifica estado de juego (`in_play`, `dead_ball`,
+   `human_intervention`) y eventos externos como robot retirado o detenido.
+12. Filtra metricas, eventos y homografia para contar solo frames `in_play`.
+13. Calcula metricas y posesion por equipo.
+14. Detecta eventos candidatos, incluyendo goles visuales si hay porteria.
+15. Renderiza dos demos MP4: narrativa del partido y analisis tecnico.
+16. Genera QA automatico.
 
 Parametros utiles:
 
@@ -293,6 +296,17 @@ Parametros utiles:
 - `--freeze-seconds`, `--freeze-cooldown-frames`, `--freeze-max-events` y
   `--freeze-event-types`: controlan duracion, separacion y tipos de eventos que
   pueden generar pausas analiticas.
+- `--generate-game-state / --no-generate-game-state`: genera o desactiva los
+  JSON de estado de juego dentro del pipeline.
+- `--filter-by-game-state / --no-filter-by-game-state`: usa solo frames
+  `in_play` para metricas, eventos deportivos y analisis de campo. Los tracks
+  completos se conservan y, si el filtro esta activo, se crea tambien
+  `*-in-play-tracks.jsonl`.
+- `--game-state-out`, `--external-events-out` y `--game-segments-out`: rutas
+  opcionales para los artefactos de estado de juego.
+- `--game-state-missing-ball-frames`, `--robot-removed-after-frames`,
+  `--robot-disabled-after-frames` y `--stationary-threshold-px`: tolerancias
+  para pelota fuera/ausente, robot retirado y robot inmovil.
 - `--no-render`: procesa sin generar video demo.
 - `--no-qa`: desactiva QA automatico.
 - `--run-report-out`: ruta opcional para el reporte Markdown integral de la
@@ -460,6 +474,29 @@ Este comando marca frames/segmentos `in_play`, `dead_ball` y
 `human_intervention`, y genera candidatos de `robot_removed` y
 `robot_disabled`. Es una primera capa heuristica para separar juego real de
 pausas, intervenciones y mantenimiento antes de defender metricas finales.
+
+`process-video` y `process-top-camera` ya ejecutan esta capa automaticamente por
+defecto. En cada corrida se agregan artefactos como:
+
+- `events/*-game-state.json`: estados por frame, segmentos y eventos externos.
+- `events/*-game-segments.json`: segmentos compactos para inspeccion rapida.
+- `events/*-external-events.json`: intervenciones humanas, pausas y robots
+  retirados/detenidos.
+- `tracks/*-in-play-tracks.jsonl`: detecciones filtradas para metricas y
+  analisis cuando `--filter-by-game-state` esta activo.
+
+Luego puedes usar ese JSON para filtrar comandos posteriores:
+
+```powershell
+python -m samba_futbot.cli metrics `
+  --tracks "outputs\tracks\video-tracks.jsonl" `
+  --game-state "outputs\events\video-game-state.json" `
+  --out "outputs\metrics\video-in-play-metrics.json"
+```
+
+`events` y `field-analysis` tambien aceptan `--game-state`, de modo que tiros,
+posesion, velocidad metrica y trayectoria pueden calcularse solo con frames
+marcados como `in_play`.
 
 Render demo narrativo:
 

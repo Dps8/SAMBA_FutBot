@@ -39,7 +39,7 @@ def _metrics_section(path: str | Path) -> list[str]:
     ball = metrics.get("classes", {}).get("ball", {})
     motion = metrics.get("motion", {}).get("ball", {})
     possession = metrics.get("possession", {})
-    return [
+    lines = [
         "## Tracking Metrics",
         "",
         f"- Frames observed: `{metrics.get('frames_observed', 0)}`",
@@ -52,7 +52,28 @@ def _metrics_section(path: str | Path) -> list[str]:
         f"- Longest possession: `{_format_longest_possession(possession)}`",
         f"- Mean ball speed: `{motion.get('mean_speed_px_second', 0.0):.1f} px/s`",
         f"- Max ball speed: `{motion.get('max_speed_px_second', 0.0):.1f} px/s`",
-        "",
+    ]
+    game_state = metrics.get("game_state")
+    if isinstance(game_state, dict):
+        lines.extend(_game_state_lines(game_state))
+    lines.append("")
+    return lines
+
+
+def _game_state_lines(game_state: dict) -> list[str]:
+    if not game_state.get("enabled", True):
+        return ["- Game-state filter: `disabled`"]
+    if "playable_detections" in game_state:
+        return [
+            f"- Game-state file: `{game_state.get('path', 'unknown')}`",
+            f"- Playable detections: `{game_state.get('playable_detections', 0)}`",
+        ]
+    return [
+        "- Game-state playable frames: "
+        f"`{game_state.get('playable_frames', 0)} / {game_state.get('frames', 0)} "
+        f"({float(game_state.get('playable_ratio', 0.0)):.1%})`",
+        f"- Game-state labels: `{_format_counter(game_state.get('states', {}))}`",
+        f"- External events: `{_format_counter(game_state.get('external_events', {}))}`",
     ]
 
 
