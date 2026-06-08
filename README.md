@@ -287,6 +287,12 @@ Parametros utiles:
 - `--render-analysis / --no-render-analysis`: genera el video tecnico con
   cajas, scores, distancia de cada robot al balon, velocidad del balon,
   trayectoria y una probabilidad heuristica de presion de tiro hacia porteria.
+- `--analysis-freeze`: solo para el video `analysis`; congela frames relevantes
+  para explicar eventos importantes como tiros, goles candidatos, pases,
+  intercepciones o colisiones.
+- `--freeze-seconds`, `--freeze-cooldown-frames`, `--freeze-max-events` y
+  `--freeze-event-types`: controlan duracion, separacion y tipos de eventos que
+  pueden generar pausas analiticas.
 - `--no-render`: procesa sin generar video demo.
 - `--no-qa`: desactiva QA automatico.
 - `--run-report-out`: ruta opcional para el reporte Markdown integral de la
@@ -461,6 +467,7 @@ python -m samba_futbot.cli render-demo `
   --events "outputs\events\video-events.json" `
   --out "outputs\videos\video-analysis-demo.mp4" `
   --style analysis `
+  --analysis-freeze `
   --max-seconds 120
 ```
 

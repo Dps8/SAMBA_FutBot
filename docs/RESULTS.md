@@ -107,6 +107,10 @@ re-render either view from existing tracks.
 The tactical field map also overlays robot-density heat by team, so heatmaps no
 longer depend only on the ball trajectory; they show where blue, yellow or
 unknown robots spent time across the calibrated field grid.
+The analysis render can now add optional freeze frames through
+`--analysis-freeze`. These pauses reuse the already-rendered frame, add a short
+explanation panel, highlight the ball trajectory/shot lane, and are limited by
+cooldown and maximum-event controls so the video stays reviewable.
 
 SAM3 prompts alone did not reliably detect the blue/yellow goals in short smoke
 clips, so the pipeline now includes a configurable HSV fallback for

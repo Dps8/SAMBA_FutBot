@@ -40,6 +40,8 @@ class CliHelpersTest(unittest.TestCase):
         self.assertTrue(args.qa)
         self.assertTrue(args.render_narrative)
         self.assertTrue(args.render_analysis)
+        self.assertFalse(args.analysis_freeze)
+        self.assertEqual(args.freeze_seconds, 1.5)
 
     def test_process_top_camera_can_disable_ball_sources(self):
         args = build_parser().parse_args(
@@ -426,11 +428,19 @@ class CliHelpersTest(unittest.TestCase):
                 "demo.mp4",
                 "--style",
                 "analysis",
+                "--analysis-freeze",
+                "--freeze-seconds",
+                "1.25",
+                "--freeze-event-types",
+                "shot,goal_candidate",
             ]
         )
 
         self.assertEqual(args.events, "events.json")
         self.assertEqual(args.style, "analysis")
+        self.assertTrue(args.analysis_freeze)
+        self.assertEqual(args.freeze_seconds, 1.25)
+        self.assertEqual(args.freeze_event_types, "shot,goal_candidate")
 
 
 if __name__ == "__main__":

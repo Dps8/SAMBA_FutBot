@@ -235,6 +235,16 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--render-narrative", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--render-analysis", action=argparse.BooleanOptionalAction, default=True)
+    process.add_argument("--analysis-freeze", action=argparse.BooleanOptionalAction, default=False)
+    process.add_argument("--freeze-seconds", type=float, default=1.5)
+    process.add_argument("--freeze-min-confidence", type=float, default=0.45)
+    process.add_argument("--freeze-cooldown-frames", type=int, default=60)
+    process.add_argument("--freeze-max-events", type=int, default=20)
+    process.add_argument(
+        "--freeze-event-types",
+        default=None,
+        help="CSV de eventos que activan freeze frames en render analysis.",
+    )
     process.set_defaults(func=cmd_process_video)
 
     top_camera = sub.add_parser(
@@ -304,6 +314,16 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--render-narrative", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--render-analysis", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.add_argument("--analysis-freeze", action=argparse.BooleanOptionalAction, default=False)
+    top_camera.add_argument("--freeze-seconds", type=float, default=1.5)
+    top_camera.add_argument("--freeze-min-confidence", type=float, default=0.45)
+    top_camera.add_argument("--freeze-cooldown-frames", type=int, default=60)
+    top_camera.add_argument("--freeze-max-events", type=int, default=20)
+    top_camera.add_argument(
+        "--freeze-event-types",
+        default=None,
+        help="CSV de eventos que activan freeze frames en render analysis.",
+    )
     top_camera.set_defaults(func=cmd_process_top_camera)
 
     field_analysis = sub.add_parser(
@@ -439,6 +459,12 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--max-seconds", type=float, default=120)
     render.add_argument("--trail-length", type=int, default=45)
     render.add_argument("--style", choices=["narrative", "analysis"], default="narrative")
+    render.add_argument("--analysis-freeze", action=argparse.BooleanOptionalAction, default=False)
+    render.add_argument("--freeze-seconds", type=float, default=1.5)
+    render.add_argument("--freeze-min-confidence", type=float, default=0.45)
+    render.add_argument("--freeze-cooldown-frames", type=int, default=60)
+    render.add_argument("--freeze-max-events", type=int, default=20)
+    render.add_argument("--freeze-event-types", default=None)
     render.set_defaults(func=cmd_render_demo)
 
     info = sub.add_parser("video-info", help="Mostrar metadata de video.")
@@ -1501,6 +1527,12 @@ def _render_pipeline_videos(
             max_seconds=render_seconds,
             trail_length=args.trail_length,
             style=style,
+            analysis_freeze=args.analysis_freeze,
+            freeze_seconds=args.freeze_seconds,
+            freeze_min_confidence=args.freeze_min_confidence,
+            freeze_cooldown_frames=args.freeze_cooldown_frames,
+            freeze_max_events=args.freeze_max_events,
+            freeze_event_types=args.freeze_event_types,
         )
     return rendered
 
@@ -2038,6 +2070,12 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         max_seconds=args.max_seconds,
         trail_length=args.trail_length,
         style=args.style,
+        analysis_freeze=args.analysis_freeze,
+        freeze_seconds=args.freeze_seconds,
+        freeze_min_confidence=args.freeze_min_confidence,
+        freeze_cooldown_frames=args.freeze_cooldown_frames,
+        freeze_max_events=args.freeze_max_events,
+        freeze_event_types=args.freeze_event_types,
     )
     print(json.dumps({"video": str(out), "style": args.style}, indent=2))
 
