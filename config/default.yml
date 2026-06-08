@@ -30,15 +30,19 @@ sam3:
       - robot
     goal_blue:
       - blue goal
+      - dark blue goal
       - blue box
+      - dark blue box
       - blue color box
       - blue goal box
       - blue goal frame
       - blue goal post
       - blue rectangular goal
+      - dark blue rectangular goal
       - blue structure on soccer field
       - blue board
       - blue boards
+      - dark blue boards
       - blue table
       - blue tables
       - blue soccer goal
@@ -102,6 +106,8 @@ goal_detection:
   seed_spatial_margin_px: 90
   require_seed_for_color: true
   require_field_overlap: true
+  infer_missing_opposite: true
+  inferred_goal_score: 0.28
   field_margin_px: 18
   min_area: 180
   max_area: 80000
@@ -109,14 +115,14 @@ goal_detection:
   max_per_frame_per_class: 1
   broad_profiles:
     goal_blue:
-      hsv_lower: [80, 35, 35]
+      hsv_lower: [80, 35, 25]
       hsv_upper: [145, 255, 255]
     goal_yellow:
       hsv_lower: [10, 35, 45]
       hsv_upper: [55, 255, 255]
   profiles:
     goal_blue:
-      hsv_lower: [90, 70, 50]
+      hsv_lower: [90, 60, 35]
       hsv_upper: [135, 255, 255]
     goal_yellow:
       hsv_lower: [18, 70, 80]

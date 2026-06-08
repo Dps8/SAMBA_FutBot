@@ -108,7 +108,10 @@ or background object from being promoted to `goal_blue`.
 
 The latest goal post-processing also applies two domain constraints from the
 tournament setup: at most one `goal_blue` and one `goal_yellow` are kept per
-frame, and accepted goals must overlap or touch the detected green field.
+frame, and accepted goals must overlap or touch the detected green field. If
+only one colored goal is visible in a frame with a detected field, the pipeline
+can add the opposite goal by mirroring the detected box across the field center;
+the inferred goal is explicitly marked with `source: goal_geometry`.
 
 ## Top Camera Notes
 
@@ -134,6 +137,15 @@ HSV/color source stays as a configurable cue for the current orange ball. New
 overhead clips can therefore run SAM3 ball prompts, color/shape detection,
 merge, refinement, tracking and rendering through a single
 `samba-futbot process-top-camera` command.
+
+June 2026 smoke tests on the top-camera clips showed that full goal prompting can
+slow down or destabilize short reprocessing passes. A lighter top-camera variant
+with `--no-goals` over two-second windows recovered the orange ball in every
+frame for two previously weak clips: `IMG_9933_f000000_2s` reached QA `good`
+with 100% in-play ball coverage, and `IMG_9933_f017990_2s` reached QA `review`
+with 100% in-play ball coverage but low robot coverage. This supports a
+two-stage strategy: first recover ball/robots/field in short windows, then add
+goal evidence through color, seeds or field geometry.
 
 The next tactical layer is implemented as an optional homography analysis:
 `samba-futbot field-analysis` or `process-top-camera --field-calibration`.

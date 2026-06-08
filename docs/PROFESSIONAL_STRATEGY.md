@@ -22,13 +22,15 @@ ejecutar un notebook.
    - Fusionar SAM3 pelota con una fuente cromatica/geométrica configurable. Hoy
      el perfil por defecto es `orange`, pero el pipeline puede cambiar a
      `white`, `yellow` o rangos HSV manuales sin reescribir codigo.
-   - Para porterias, usar prompts amplios como `blue box`, `yellow box`,
-     `goal frame`, `goal post`, `caja azul` y `caja amarilla`; si SAM3 encuentra
-     una caja, recalibrar el HSV desde esas coordenadas para no depender de un
-     color hardcodeado.
+   - Para porterias, usar prompts amplios como `blue box`, `dark blue box`,
+     `yellow box`, `goal frame`, `goal post`, `caja azul` y `caja amarilla`; si
+     SAM3 encuentra una caja, recalibrar el HSV desde esas coordenadas para no
+     depender de un color hardcodeado.
    - Agregar variantes de dominio como `blue/yellow board`, `blue/yellow table`
      y `tabla azul/amarilla`, y aplicar reglas fisicas: una sola porteria por
      color en cada frame y siempre asociada al campo verde.
+   - Si solo aparece una porteria, inferir la opuesta por simetria respecto al
+     campo detectado y marcarla como geometrica, no como deteccion visual pura.
    - Usar filtros geometricos y contexto de campo/robots si SAM 3 o el detector
      de color confunden logos, reflejos, bordes o piezas del robot.
 

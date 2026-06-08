@@ -137,6 +137,9 @@ Puntos clave:
 - `goal_detection.require_field_overlap`: exige que la porteria aceptada este
   sobre o tocando el campo detectado. Con `max_per_frame_per_class: 1`, el
   pipeline conserva como maximo una porteria azul y una amarilla por frame.
+- `goal_detection.infer_missing_opposite`: si en un frame hay campo y solo se
+  detecta una porteria de color, crea la porteria opuesta por simetria respecto
+  al eje central del campo y la marca con `source: goal_geometry`.
 - `analysis.possession_radius_px`: distancia robot-pelota para contar posesion.
 - `analysis.in_play_field_margin_px`: margen para decidir si la pelota esta en juego.
 - `analysis.ball_border_margin_px`: filtro contra falsos positivos en bordes.
@@ -221,15 +224,17 @@ python -m samba_futbot.cli process-top-camera `
 Que hace internamente:
 
 1. Lee el video con OpenCV.
-2. Ejecuta SAM 3 para `field,robots,goal_blue,goal_yellow`.
+2. Ejecuta SAM 3 para `field,robots,goal_blue,goal_yellow`; los prompts de
+   porteria incluyen cajas, postes, tableros, mesas y azul oscuro.
 3. Ejecuta SAM 3 para `ball` con prompts semanticos.
 4. Detecta pelota por color/forma usando el perfil HSV configurado.
 5. Si SAM3 encontro porterias, calibra el HSV real desde esas cajas.
 6. Agrega porterias por color azul/amarillo si el fallback cromatico esta
    activo.
-7. Fusiona campo, robots, porterias y candidatos de pelota.
-8. Refina la pelota con `refine-ball`.
-9. Genera tracks y asigna equipo de robots por color.
+7. Si solo aparece una porteria, infiere la opuesta por geometria del campo.
+8. Fusiona campo, robots, porterias y candidatos de pelota.
+9. Refina la pelota con `refine-ball`.
+10. Genera tracks y asigna equipo de robots por color.
 10. Calcula metricas y posesion por equipo.
 11. Detecta eventos candidatos, incluyendo goles visuales si hay porteria.
 12. Renderiza demo MP4.

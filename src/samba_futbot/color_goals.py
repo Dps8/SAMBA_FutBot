@@ -217,6 +217,8 @@ def enforce_goal_frame_constraints(
     field_detections: list[Detection] | None = None,
     max_per_frame_per_class: int = 1,
     require_field_overlap: bool = False,
+    infer_missing_opposite: bool = False,
+    inferred_goal_score: float = 0.28,
     field_margin_px: float = 18.0,
 ) -> list[Detection]:
     if max_per_frame_per_class <= 0:
@@ -247,10 +249,74 @@ def enforce_goal_frame_constraints(
                 reverse=True,
             )[:max_per_frame_per_class]
         )
+    if infer_missing_opposite:
+        kept_goals.extend(
+            _infer_missing_opposite_goals(
+                kept_goals,
+                fields_by_frame,
+                score=inferred_goal_score,
+            )
+        )
     return sorted(
         passthrough + kept_goals,
         key=lambda det: (det.frame_index, det.class_name, det.track_id or -1, det.score),
     )
+
+
+def _infer_missing_opposite_goals(
+    goals: list[Detection],
+    fields_by_frame: dict[int, list[Detection]],
+    *,
+    score: float,
+) -> list[Detection]:
+    inferred: list[Detection] = []
+    goals_by_frame: dict[int, list[Detection]] = {}
+    for goal in goals:
+        goals_by_frame.setdefault(goal.frame_index, []).append(goal)
+
+    for frame_index, frame_goals in goals_by_frame.items():
+        classes = {goal.class_name for goal in frame_goals}
+        missing_classes = GOAL_CLASSES - classes
+        if len(missing_classes) != 1 or len(classes) != 1:
+            continue
+        fields = fields_by_frame.get(frame_index, [])
+        if not fields:
+            continue
+        source = max(frame_goals, key=lambda det: (det.score, det.area or 0.0))
+        field = max(fields, key=lambda det: det.area or _box_area(det.box))
+        inferred_class = next(iter(missing_classes))
+        inferred_box = _mirror_box_across_field(source.box, field.box)
+        inferred.append(
+            Detection(
+                frame_index=frame_index,
+                class_name=inferred_class,
+                score=min(float(score), source.score),
+                box=inferred_box,
+                prompt="geometry_inferred_opposite_goal",
+                area=_box_area(inferred_box),
+                extra={
+                    "source": "goal_geometry",
+                    "inferred_from_class": source.class_name,
+                    "inferred_from_box": list(source.box),
+                    "field_box": list(field.box),
+                },
+            )
+        )
+    return inferred
+
+
+def _mirror_box_across_field(
+    box: tuple[float, float, float, float],
+    field_box: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    x1, y1, x2, y2 = box
+    field_x1, _, field_x2, _ = field_box
+    return (field_x1 + field_x2 - x2, y1, field_x1 + field_x2 - x1, y2)
+
+
+def _box_area(box: tuple[float, float, float, float]) -> float:
+    x1, y1, x2, y2 = box
+    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
 
 
 def _broad_goal_profiles() -> dict[str, dict[str, tuple[int, int, int]]]:

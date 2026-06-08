@@ -202,6 +202,38 @@ class ColorGoalsTest(unittest.TestCase):
         self.assertEqual([(det.class_name, det.score) for det in goals], [("goal_yellow", 0.8)])
         self.assertIn("robots", {det.class_name for det in constrained})
 
+    def test_goal_constraints_infer_missing_opposite_goal_from_field_geometry(self):
+        detections = [
+            Detection(0, "field", 0.9, (0, 0, 160, 80)),
+            Detection(0, "goal_yellow", 0.8, (10, 20, 30, 60), area=800),
+        ]
+
+        constrained = enforce_goal_frame_constraints(
+            detections,
+            field_detections=detections,
+            require_field_overlap=True,
+            infer_missing_opposite=True,
+            inferred_goal_score=0.25,
+        )
+
+        goals = {det.class_name: det for det in constrained if det.class_name.startswith("goal_")}
+        self.assertIn("goal_yellow", goals)
+        self.assertIn("goal_blue", goals)
+        self.assertEqual(goals["goal_blue"].box, (130, 20, 150, 60))
+        self.assertEqual(goals["goal_blue"].score, 0.25)
+        self.assertEqual(goals["goal_blue"].extra["source"], "goal_geometry")
+
+    def test_goal_constraints_do_not_infer_opposite_goal_without_field(self):
+        detections = [Detection(0, "goal_yellow", 0.8, (10, 20, 30, 60), area=800)]
+
+        constrained = enforce_goal_frame_constraints(
+            detections,
+            field_detections=[],
+            infer_missing_opposite=True,
+        )
+
+        self.assertEqual([det.class_name for det in constrained], ["goal_yellow"])
+
     def test_detect_colored_goals_can_require_field_overlap(self):
         cv2 = require_cv2()
         with tempfile.TemporaryDirectory() as tmp:

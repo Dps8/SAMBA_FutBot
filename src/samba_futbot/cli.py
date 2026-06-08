@@ -1601,6 +1601,8 @@ def _enforce_goal_constraints_for_process(detections: list, config: dict) -> lis
         field_detections=detections,
         max_per_frame_per_class=int(goal_config.get("max_per_frame_per_class", 1)),
         require_field_overlap=bool(goal_config.get("require_field_overlap", True)),
+        infer_missing_opposite=bool(goal_config.get("infer_missing_opposite", False)),
+        inferred_goal_score=float(goal_config.get("inferred_goal_score", 0.28)),
         field_margin_px=float(goal_config.get("field_margin_px", 18.0)),
     )
 
