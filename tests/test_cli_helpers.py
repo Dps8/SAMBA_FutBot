@@ -38,6 +38,8 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.refine_max_jump_px, 35.0)
         self.assertTrue(args.goals)
         self.assertTrue(args.qa)
+        self.assertTrue(args.render_narrative)
+        self.assertTrue(args.render_analysis)
 
     def test_process_top_camera_can_disable_ball_sources(self):
         args = build_parser().parse_args(
@@ -422,10 +424,13 @@ class CliHelpersTest(unittest.TestCase):
                 "events.json",
                 "--out",
                 "demo.mp4",
+                "--style",
+                "analysis",
             ]
         )
 
         self.assertEqual(args.events, "events.json")
+        self.assertEqual(args.style, "analysis")
 
 
 if __name__ == "__main__":

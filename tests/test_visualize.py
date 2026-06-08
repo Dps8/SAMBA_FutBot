@@ -1,7 +1,13 @@
 import unittest
 
 from samba_futbot.types import Detection
-from samba_futbot.visualize import _event_label, _frame_header, _recent_event
+from samba_futbot.visualize import (
+    _event_label,
+    _frame_header,
+    _recent_event,
+    robot_ball_distances,
+    shot_probability,
+)
 
 
 class VisualizeTest(unittest.TestCase):
@@ -27,6 +33,34 @@ class VisualizeTest(unittest.TestCase):
 
         self.assertIn("possession: yellow #7", header)
         self.assertIn("event: goal yellow", header)
+
+    def test_analysis_header_uses_analysis_label(self):
+        header = _frame_header(3, None, style="analysis")
+
+        self.assertIn("SAMBA FutBot: analysis", header)
+
+    def test_robot_ball_distances_rank_nearest_robots(self):
+        frame = [
+            Detection(0, "ball", 1.0, (10, 10, 14, 14), track_id=1),
+            Detection(0, "robots", 1.0, (0, 0, 10, 10), track_id=2, team="blue"),
+            Detection(0, "robots", 1.0, (90, 90, 110, 110), track_id=3, team="yellow"),
+        ]
+
+        distances = robot_ball_distances(frame)
+
+        self.assertEqual([item["track_id"] for item in distances], [2, 3])
+        self.assertEqual(distances[0]["team"], "blue")
+        self.assertLess(distances[0]["distance_px"], distances[1]["distance_px"])
+
+    def test_shot_probability_reports_direction_speed_and_probability(self):
+        previous = Detection(0, "ball", 1.0, (40, 10, 44, 14), track_id=1)
+        current = Detection(1, "ball", 1.0, (80, 10, 84, 14), track_id=1)
+
+        pressure = shot_probability(current, previous, frame_width=100)
+
+        self.assertEqual(pressure["target_side"], "right")
+        self.assertGreater(pressure["speed_px_frame"], 0)
+        self.assertGreater(pressure["probability"], 0.5)
 
 
 if __name__ == "__main__":

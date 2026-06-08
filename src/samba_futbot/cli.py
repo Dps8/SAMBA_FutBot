@@ -233,6 +233,8 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--max-seconds", type=float, default=None)
     process.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
+    process.add_argument("--render-narrative", action=argparse.BooleanOptionalAction, default=True)
+    process.add_argument("--render-analysis", action=argparse.BooleanOptionalAction, default=True)
     process.set_defaults(func=cmd_process_video)
 
     top_camera = sub.add_parser(
@@ -300,6 +302,8 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--max-seconds", type=float, default=None)
     top_camera.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--render", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.add_argument("--render-narrative", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.add_argument("--render-analysis", action=argparse.BooleanOptionalAction, default=True)
     top_camera.set_defaults(func=cmd_process_top_camera)
 
     field_analysis = sub.add_parser(
@@ -434,6 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--events", default=None)
     render.add_argument("--max-seconds", type=float, default=120)
     render.add_argument("--trail-length", type=int, default=45)
+    render.add_argument("--style", choices=["narrative", "analysis"], default="narrative")
     render.set_defaults(func=cmd_render_demo)
 
     info = sub.add_parser("video-info", help="Mostrar metadata de video.")
@@ -784,7 +789,6 @@ def cmd_process_video(args: argparse.Namespace) -> None:
     metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
     events_out = results_dir / "events" / f"{stem}-{args.suffix}-events.json"
     event_summary_out = results_dir / "events" / f"{stem}-{args.suffix}-event-summary.json"
-    video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
 
     field_detections = _run_sweep_for_process(
         args,
@@ -925,19 +929,16 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         write_field_zone_control_csv(field_zone_control_csv, field_analysis_result)
         render_field_map(field_analysis_result, field_map_out)
 
-    rendered = None
-    if args.render:
-        render_seconds = args.max_seconds
-        if render_seconds is None:
-            render_seconds = duration_seconds
-        rendered = render_demo_video(
-            args.video,
-            tracks_out,
-            video_out,
-            events_path=events_out,
-            max_seconds=render_seconds,
-            trail_length=args.trail_length,
-        )
+    rendered_videos = _render_pipeline_videos(
+        args,
+        video_path=args.video,
+        tracks_out=tracks_out,
+        events_out=events_out,
+        results_dir=results_dir,
+        stem=stem,
+        duration_seconds=duration_seconds,
+    )
+    rendered = rendered_videos.get("narrative") or rendered_videos.get("analysis")
 
     qa_out, qa_report_out, qa_report = _write_pipeline_qa(
         args,
@@ -978,6 +979,8 @@ def cmd_process_video(args: argparse.Namespace) -> None:
             "qa_report": qa_report_out,
             "run_report": run_report_out,
             "demo": rendered,
+            "narrative_demo": rendered_videos.get("narrative"),
+            "analysis_demo": rendered_videos.get("analysis"),
         },
         metrics_summary=summary,
         event_summary=event_summary,
@@ -1019,6 +1022,16 @@ def cmd_process_video(args: argparse.Namespace) -> None:
                     "run_report": str(run_report_out) if run_report_out else None,
                     "run_manifest": str(run_manifest_out) if run_manifest_out else None,
                     "demo": str(rendered) if rendered else None,
+                    "narrative_demo": (
+                        str(rendered_videos["narrative"])
+                        if rendered_videos.get("narrative")
+                        else None
+                    ),
+                    "analysis_demo": (
+                        str(rendered_videos["analysis"])
+                        if rendered_videos.get("analysis")
+                        else None
+                    ),
                 },
                 "metrics": summary,
                 "field_analysis_summary": (
@@ -1083,7 +1096,6 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     metrics_out = results_dir / "metrics" / f"{stem}-{args.suffix}-metrics.json"
     events_out = results_dir / "events" / f"{stem}-{args.suffix}-events.json"
     event_summary_out = results_dir / "events" / f"{stem}-{args.suffix}-event-summary.json"
-    video_out = results_dir / "videos" / f"{stem}-{args.suffix}-demo.mp4"
 
     field_detections = _run_sweep_for_process(
         args,
@@ -1258,19 +1270,16 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         write_field_zone_control_csv(field_zone_control_csv, field_analysis_result)
         render_field_map(field_analysis_result, field_map_out)
 
-    rendered = None
-    if args.render:
-        render_seconds = args.max_seconds
-        if render_seconds is None:
-            render_seconds = duration_seconds
-        rendered = render_demo_video(
-            args.video,
-            tracks_out,
-            video_out,
-            events_path=events_out,
-            max_seconds=render_seconds,
-            trail_length=args.trail_length,
-        )
+    rendered_videos = _render_pipeline_videos(
+        args,
+        video_path=args.video,
+        tracks_out=tracks_out,
+        events_out=events_out,
+        results_dir=results_dir,
+        stem=stem,
+        duration_seconds=duration_seconds,
+    )
+    rendered = rendered_videos.get("narrative") or rendered_videos.get("analysis")
 
     qa_out, qa_report_out, qa_report = _write_pipeline_qa(
         args,
@@ -1319,6 +1328,8 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             "qa_report": qa_report_out,
             "run_report": run_report_out,
             "demo": rendered,
+            "narrative_demo": rendered_videos.get("narrative"),
+            "analysis_demo": rendered_videos.get("analysis"),
         },
         metrics_summary=summary,
         event_summary=event_summary,
@@ -1381,6 +1392,16 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                     "run_report": str(run_report_out) if run_report_out else None,
                     "run_manifest": str(run_manifest_out) if run_manifest_out else None,
                     "demo": str(rendered) if rendered else None,
+                    "narrative_demo": (
+                        str(rendered_videos["narrative"])
+                        if rendered_videos.get("narrative")
+                        else None
+                    ),
+                    "analysis_demo": (
+                        str(rendered_videos["analysis"])
+                        if rendered_videos.get("analysis")
+                        else None
+                    ),
                 },
                 "metrics": summary,
                 "field_analysis_summary": (
@@ -1446,6 +1467,42 @@ def _write_pipeline_run_report(
         demo_path=rendered,
         field_map_path=field_map_out,
     )
+
+
+def _render_pipeline_videos(
+    args: argparse.Namespace,
+    *,
+    video_path: str,
+    tracks_out: Path,
+    events_out: Path,
+    results_dir: Path,
+    stem: str,
+    duration_seconds: float | None,
+) -> dict[str, Path]:
+    if not args.render:
+        return {}
+    render_seconds = args.max_seconds
+    if render_seconds is None:
+        render_seconds = duration_seconds
+
+    rendered: dict[str, Path] = {}
+    styles = []
+    if getattr(args, "render_narrative", True):
+        styles.append("narrative")
+    if getattr(args, "render_analysis", True):
+        styles.append("analysis")
+    for style in styles:
+        out_path = results_dir / "videos" / f"{stem}-{args.suffix}-{style}-demo.mp4"
+        rendered[style] = render_demo_video(
+            video_path,
+            tracks_out,
+            out_path,
+            events_path=events_out,
+            max_seconds=render_seconds,
+            trail_length=args.trail_length,
+            style=style,
+        )
+    return rendered
 
 
 def _write_pipeline_manifest(
@@ -1980,8 +2037,9 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         events_path=args.events,
         max_seconds=args.max_seconds,
         trail_length=args.trail_length,
+        style=args.style,
     )
-    print(json.dumps({"video": str(out)}, indent=2))
+    print(json.dumps({"video": str(out), "style": args.style}, indent=2))
 
 
 def cmd_video_info(args: argparse.Namespace) -> None:

@@ -42,6 +42,7 @@ def render_field_map(
     field_box = (margin, margin, margin + field_px_width, margin + field_px_height)
     _draw_field(draw, field_box, field, font)
     _draw_heatmap(draw, analysis, field_box)
+    _draw_robot_density_heatmap(draw, analysis, field_box)
     _draw_territorial_control(draw, analysis, field_box)
     _draw_robot_positions(draw, analysis, field_box, field_length, field_width)
     _draw_trajectory(draw, analysis, field_box, field_length, field_width)
@@ -195,6 +196,54 @@ def _draw_territorial_control(
             y1 + (row + 1) * cell_h,
         )
         draw.rectangle(cell, fill=(*base, alpha), outline=(*base, 210), width=3)
+
+
+def _draw_robot_density_heatmap(
+    draw: ImageDraw.ImageDraw,
+    analysis: dict,
+    box: tuple[int, int, int, int],
+) -> None:
+    grid = analysis.get("grid", {})
+    rows = int(grid.get("rows", 1))
+    cols = int(grid.get("cols", 1))
+    if rows <= 0 or cols <= 0:
+        return
+
+    counts: dict[tuple[int, int, str], int] = {}
+    for record in analysis.get("robot_path", []):
+        if not record.get("inside_field", True):
+            continue
+        row = int(record.get("row", -1))
+        col = int(record.get("col", -1))
+        team = str(record.get("team") or "unknown")
+        if row < 0 or col < 0 or row >= rows or col >= cols:
+            continue
+        key = (row, col, team)
+        counts[key] = counts.get(key, 0) + 1
+
+    max_count = max(counts.values(), default=0)
+    if not max_count:
+        return
+
+    x1, y1, x2, y2 = box
+    cell_w = (x2 - x1) / cols
+    cell_h = (y2 - y1) / rows
+    colors = {
+        "blue": (38, 117, 255),
+        "yellow": (255, 215, 45),
+        "unknown": (245, 245, 245),
+    }
+    for (row, col, team), count in counts.items():
+        base = colors.get(team, colors["unknown"])
+        alpha = int(18 + 90 * (count / max_count))
+        inset = 4
+        cell = (
+            x1 + col * cell_w + inset,
+            y1 + row * cell_h + inset,
+            x1 + (col + 1) * cell_w - inset,
+            y1 + (row + 1) * cell_h - inset,
+        )
+        draw.rounded_rectangle(cell, radius=8, fill=(*base, alpha))
 
 
 def _draw_robot_positions(

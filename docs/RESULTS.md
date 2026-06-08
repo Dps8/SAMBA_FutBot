@@ -96,6 +96,17 @@ target side.
 Rendered demo videos can now read `events.json` and keep the latest event in
 the overlay header for a short window, turning the visual output into a more
 narrative review artifact.
+Rendering is now split into two complementary styles. The narrative demo keeps
+the overlay lighter for presentation: teams, possession and recent match events.
+The analysis demo keeps the technical detail: boxes, scores, team labels, ball
+trajectory, per-robot distance to the ball, ball speed in px/frame and a
+heuristic shot-pressure probability toward the left or right goal. Full
+pipelines can generate both videos in one run through `--render-narrative` and
+`--render-analysis`, while `render-demo --style narrative|analysis` can
+re-render either view from existing tracks.
+The tactical field map also overlays robot-density heat by team, so heatmaps no
+longer depend only on the ball trajectory; they show where blue, yellow or
+unknown robots spent time across the calibrated field grid.
 
 SAM3 prompts alone did not reliably detect the blue/yellow goals in short smoke
 clips, so the pipeline now includes a configurable HSV fallback for

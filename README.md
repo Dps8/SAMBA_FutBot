@@ -254,10 +254,10 @@ Que hace internamente:
 8. Fusiona campo, robots, porterias y candidatos de pelota.
 9. Refina la pelota con `refine-ball`.
 10. Genera tracks y asigna equipo de robots por color.
-10. Calcula metricas y posesion por equipo.
-11. Detecta eventos candidatos, incluyendo goles visuales si hay porteria.
-12. Renderiza demo MP4.
-13. Genera QA automatico.
+11. Calcula metricas y posesion por equipo.
+12. Detecta eventos candidatos, incluyendo goles visuales si hay porteria.
+13. Renderiza dos demos MP4: narrativa del partido y analisis tecnico.
+14. Genera QA automatico.
 
 Parametros utiles:
 
@@ -281,6 +281,12 @@ Parametros utiles:
 - `--refine-preferred-area`: area esperada de la pelota.
 - `--trail-length`: longitud del rastro visual.
 - `--max-seconds`: limita duracion renderizada.
+- `--render-narrative / --no-render-narrative`: genera el video limpio de
+  narracion del partido, con posesion, equipos y eventos como goles, tiros,
+  cambios de posesion o colisiones.
+- `--render-analysis / --no-render-analysis`: genera el video tecnico con
+  cajas, scores, distancia de cada robot al balon, velocidad del balon,
+  trayectoria y una probabilidad heuristica de presion de tiro hacia porteria.
 - `--no-render`: procesa sin generar video demo.
 - `--no-qa`: desactiva QA automatico.
 - `--run-report-out`: ruta opcional para el reporte Markdown integral de la
@@ -310,7 +316,8 @@ Esto agrega:
 - CSV de robots proyectados.
 - CSV de control territorial por zona.
 - PNG de mapa tactico con trayectoria de pelota, ocupacion por zonas, control
-  territorial y robots coloreados por equipo.
+  territorial, mapa de calor de robots por equipo y robots coloreados por
+  equipo.
 - Candidatos reglamentarios: pelota fuera de campo, entradas a porteria,
   robots en area de penalizacion.
 - Ocupacion de robots por equipo, zona, area reglamentaria y tercio
@@ -433,16 +440,34 @@ python -m samba_futbot.cli event-summary `
   --out "outputs\events\video-event-summary.json"
 ```
 
-Render demo:
+Render demo narrativo:
 
 ```powershell
 python -m samba_futbot.cli render-demo `
   --video "data\raw\video.mov" `
   --tracks "outputs\tracks\video-tracks.jsonl" `
   --events "outputs\events\video-events.json" `
-  --out "outputs\videos\video-demo.mp4" `
+  --out "outputs\videos\video-narrative-demo.mp4" `
+  --style narrative `
   --max-seconds 120
 ```
+
+Render demo de analisis:
+
+```powershell
+python -m samba_futbot.cli render-demo `
+  --video "data\raw\video.mov" `
+  --tracks "outputs\tracks\video-tracks.jsonl" `
+  --events "outputs\events\video-events.json" `
+  --out "outputs\videos\video-analysis-demo.mp4" `
+  --style analysis `
+  --max-seconds 120
+```
+
+El estilo `narrative` evita saturar la pantalla y sirve para presentar lo que
+ocurre en el partido. El estilo `analysis` muestra evidencia tecnica: equipos,
+confianza, distancia robot-balon, velocidad de pelota, trayectoria y presion de
+tiro estimada.
 
 Reporte Markdown:
 
