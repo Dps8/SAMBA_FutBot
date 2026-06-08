@@ -14,6 +14,7 @@ from .calibration import calibration_quality_report, render_calibration_frame, w
 from .config import deep_get, load_config
 from .color_ball import detect_orange_ball
 from .color_goals import detect_colored_goals, enforce_goal_frame_constraints
+from .dataset import export_frame_dataset
 from .drive import (
     download_manifest_files,
     download_drive_file,
@@ -164,6 +165,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Base para escribir mask_path relativo; por defecto usa la carpeta del JSONL.",
     )
     pseudolabels.set_defaults(func=cmd_export_pseudolabels)
+
+    frame_dataset = sub.add_parser(
+        "export-frame-dataset",
+        help="Exportar frames/crops auditables desde video y detecciones.",
+    )
+    frame_dataset.add_argument("--video", required=True)
+    frame_dataset.add_argument("--detections", required=True)
+    frame_dataset.add_argument("--out-dir", required=True)
+    frame_dataset.add_argument("--classes", default="robots,ball,goal_blue,goal_yellow")
+    frame_dataset.add_argument("--min-score", type=float, default=0.60)
+    frame_dataset.add_argument("--frame-stride", type=int, default=1)
+    frame_dataset.add_argument("--max-frames", type=int, default=None)
+    frame_dataset.add_argument("--crop", action=argparse.BooleanOptionalAction, default=True)
+    frame_dataset.add_argument("--crop-padding-px", type=int, default=8)
+    frame_dataset.add_argument("--max-detections-per-class-per-frame", type=int, default=8)
+    frame_dataset.add_argument(
+        "--split-strategy",
+        choices=["by-video", "by-frame"],
+        default="by-video",
+    )
+    frame_dataset.add_argument("--train-ratio", type=float, default=0.80)
+    frame_dataset.add_argument("--val-ratio", type=float, default=0.10)
+    frame_dataset.set_defaults(func=cmd_export_frame_dataset)
 
     color_ball = sub.add_parser(
         "detect-orange-ball",
@@ -780,6 +804,39 @@ def cmd_export_pseudolabels(args: argparse.Namespace) -> None:
                 "candidates_by_class": manifest["summary"]["candidates_by_class"],
                 "rejected": manifest["summary"]["rejected"],
             },
+            indent=2,
+        )
+    )
+
+
+def cmd_export_frame_dataset(args: argparse.Namespace) -> None:
+    classes = [part.strip() for part in args.classes.split(",") if part.strip()]
+    manifest = export_frame_dataset(
+        video_path=args.video,
+        detections_path=args.detections,
+        out_dir=args.out_dir,
+        classes=classes,
+        min_score=args.min_score,
+        frame_stride=args.frame_stride,
+        max_frames=args.max_frames,
+        crop=args.crop,
+        crop_padding_px=args.crop_padding_px,
+        max_detections_per_class_per_frame=args.max_detections_per_class_per_frame,
+        split_strategy=args.split_strategy,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+    )
+    print(
+        json.dumps(
+            {
+                "out": str(Path(args.out_dir) / "manifest.json"),
+                "frames": manifest["summary"]["frames"],
+                "detections": manifest["summary"]["detections"],
+                "crops": manifest["summary"]["crops"],
+                "detections_by_class": manifest["summary"]["detections_by_class"],
+                "frames_by_split": manifest["summary"]["frames_by_split"],
+            },
+            ensure_ascii=False,
             indent=2,
         )
     )

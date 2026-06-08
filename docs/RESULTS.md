@@ -64,6 +64,11 @@ high-confidence SAM3 detections with saved masks into a compact pseudo-label
 manifest. This does not train a model yet, but it reduces the setup time for the
 next fine-tuning block by making candidate masks auditable and filterable by
 class, score, area and mask availability.
+The `export-frame-dataset` command extends that preparation step by exporting
+full frames, class-specific crops and a dataset manifest from any video plus
+detections/tracks file. Its default split is by video, which avoids leaking
+near-duplicate frames from the same clip across train/validation/test when the
+fine-tuning block starts.
 Full processing commands also write that integrated report by default under
 `outputs/reports`, reducing the number of manual post-processing commands needed
 for reproducible review.

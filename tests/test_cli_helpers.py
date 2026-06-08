@@ -181,6 +181,40 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.min_score, 0.75)
         self.assertFalse(args.require_mask)
 
+    def test_export_frame_dataset_command_parses_filters(self):
+        args = build_parser().parse_args(
+            [
+                "export-frame-dataset",
+                "--video",
+                "clip.mp4",
+                "--detections",
+                "tracks.jsonl",
+                "--out-dir",
+                "dataset",
+                "--classes",
+                "robots,ball",
+                "--min-score",
+                "0.7",
+                "--frame-stride",
+                "3",
+                "--max-frames",
+                "20",
+                "--no-crop",
+                "--split-strategy",
+                "by-frame",
+            ]
+        )
+
+        self.assertEqual(args.video, "clip.mp4")
+        self.assertEqual(args.detections, "tracks.jsonl")
+        self.assertEqual(args.out_dir, "dataset")
+        self.assertEqual(args.classes, "robots,ball")
+        self.assertEqual(args.min_score, 0.7)
+        self.assertEqual(args.frame_stride, 3)
+        self.assertEqual(args.max_frames, 20)
+        self.assertFalse(args.crop)
+        self.assertEqual(args.split_strategy, "by-frame")
+
     def test_jsonable_serializes_private_cli_values(self):
         value = _jsonable({"path": __file__, "func": self.test_jsonable_serializes_private_cli_values})
 

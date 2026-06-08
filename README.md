@@ -206,6 +206,24 @@ python -m samba_futbot.cli export-pseudolabels `
   --require-mask
 ```
 
+Exportar frames/crops auditables para revision humana o fine-tuning posterior:
+
+```powershell
+python -m samba_futbot.cli export-frame-dataset `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --detections "outputs\review\2026-05-27\18abril_top_camera\runs\tracks\IMG_9938_f001799_10s-top-hybrid-ball-v1-in-play-tracks.jsonl" `
+  --out-dir "outputs\datasets\IMG_9938_f001799_10s" `
+  --classes "robots,ball,goal_blue,goal_yellow" `
+  --min-score 0.60 `
+  --split-strategy by-video
+```
+
+Este comando escribe `manifest.json`, frames completos y crops por clase. El
+split por defecto es `by-video` para evitar fuga de informacion entre frames
+casi identicos del mismo clip. Si se necesita una exploracion rapida de un solo
+video, `--split-strategy by-frame` reparte por frame, pero no debe usarse para
+reportar validacion final.
+
 Indexar Drive:
 
 ```powershell
