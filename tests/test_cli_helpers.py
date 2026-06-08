@@ -121,6 +121,28 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.color_profile, "white")
         self.assertEqual(args.hsv_lower, "0,0,160")
 
+    def test_export_pseudolabels_command_parses_filters(self):
+        args = build_parser().parse_args(
+            [
+                "export-pseudolabels",
+                "--detections",
+                "detections.jsonl",
+                "--out",
+                "pseudolabels.json",
+                "--classes",
+                "robots,ball",
+                "--min-score",
+                "0.75",
+                "--no-require-mask",
+            ]
+        )
+
+        self.assertEqual(args.detections, "detections.jsonl")
+        self.assertEqual(args.out, "pseudolabels.json")
+        self.assertEqual(args.classes, "robots,ball")
+        self.assertEqual(args.min_score, 0.75)
+        self.assertFalse(args.require_mask)
+
     def test_jsonable_serializes_private_cli_values(self):
         value = _jsonable({"path": __file__, "func": self.test_jsonable_serializes_private_cli_values})
 

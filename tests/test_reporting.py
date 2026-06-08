@@ -98,6 +98,17 @@ class ReportingTest(unittest.TestCase):
                         "ball_in_play_coverage_ratio": 0.7,
                         "max_ball_speed_px_frame": 12.0,
                         "unknown_team_ratio": 0.1,
+                        "possession_coverage_ratio": 0.5,
+                    },
+                    "claim_readiness": {
+                        "ball_tracking": {
+                            "status": "ready",
+                            "reason": "ball tracking evidence is stable",
+                        },
+                        "team_possession": {
+                            "status": "ready",
+                            "reason": "team possession evidence is stable",
+                        },
                     },
                     "issues": [
                         {
@@ -134,6 +145,8 @@ class ReportingTest(unittest.TestCase):
         self.assertIn("Territorial control by leader", text)
         self.assertIn("Run QA", text)
         self.assertIn("Quality score", text)
+        self.assertIn("Claim Readiness", text)
+        self.assertIn("team_possession", text)
         self.assertIn("low_ball_coverage", text)
 
 

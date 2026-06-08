@@ -18,6 +18,8 @@ DEFAULT_THRESHOLDS = {
     "fail_out_of_bounds_ratio": 0.20,
     "max_unknown_team_ratio": 0.35,
     "fail_unknown_team_ratio": 0.75,
+    "min_possession_coverage": 0.30,
+    "min_field_path_samples": 10,
 }
 
 
@@ -37,11 +39,13 @@ def evaluate_run_quality(
     issues = _issues(summary, limits)
     status = _status(issues)
     score = _quality_score(issues)
+    claim_readiness = _claim_readiness(summary, limits)
 
     return {
         "status": status,
         "quality_score": score,
         "summary": summary,
+        "claim_readiness": claim_readiness,
         "issues": issues,
         "thresholds": limits,
         "inputs": {
@@ -74,10 +78,26 @@ def write_quality_markdown(path: str | Path, report: dict) -> Path:
         f"- Ball out-of-bounds ratio: `{summary.get('ball_out_of_bounds_ratio', 0.0):.1%}`",
         f"- Robot penalty-area samples: `{summary.get('robot_penalty_area_samples', 0)}`",
         f"- Unknown-team robot ratio: `{summary.get('unknown_team_ratio', 0.0):.1%}`",
+        f"- Possession coverage: `{summary.get('possession_coverage_ratio', 0.0):.1%}`",
         "",
-        "## Issues",
+        "## Claim Readiness",
         "",
     ]
+    readiness = report.get("claim_readiness", {})
+    if readiness:
+        for claim, values in sorted(readiness.items()):
+            status = values.get("status", "unknown") if isinstance(values, dict) else "unknown"
+            reason = values.get("reason", "") if isinstance(values, dict) else ""
+            lines.append(f"- `{claim}`: `{status}` - {reason}")
+    else:
+        lines.append("- No claim-readiness data was generated.")
+    lines.extend(
+        [
+            "",
+            "## Issues",
+            "",
+        ]
+    )
     if issues:
         for issue in issues:
             lines.append(
@@ -131,8 +151,8 @@ def write_quality_index_markdown(path: str | Path, reports: list[dict]) -> Path:
     lines = [
         "# QA Run Index",
         "",
-        "| Rank | Status | Score | Ball coverage | Max jump | Unknown teams | Path |",
-        "|---:|---|---:|---:|---:|---:|---|",
+        "| Rank | Status | Score | Ball coverage | Max jump | Unknown teams | Ready claims | Path |",
+        "|---:|---|---:|---:|---:|---:|---|---|",
     ]
     for index, report in enumerate(reports, start=1):
         summary = report.get("summary", {})
@@ -144,10 +164,11 @@ def write_quality_index_markdown(path: str | Path, reports: list[dict]) -> Path:
             f"{float(summary.get('ball_in_play_coverage_ratio', 0.0)):.1%} | "
             f"{float(summary.get('max_ball_speed_px_frame', 0.0)):.1f} | "
             f"{float(summary.get('unknown_team_ratio', 0.0)):.1%} | "
+            f"`{_ready_claims(report.get('claim_readiness', {}))}` | "
             f"`{report.get('path', '')}` |"
         )
     if not reports:
-        lines.append("| 0 | `none` | 0 | 0.0% | 0.0 | 0.0% | `No QA reports found` |")
+        lines.append("| 0 | `none` | 0 | 0.0% | 0.0 | 0.0% | `none` | `No QA reports found` |")
     output = ensure_parent(path)
     output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return output
@@ -199,8 +220,82 @@ def _summary(metrics: dict[str, Any], events: list[Any], field: dict[str, Any]) 
         "unknown_team_ratio": (
             unknown_team_samples / robot_sample_total if robot_sample_total else 0.0
         ),
+        "possession_coverage_ratio": _number(
+            metrics.get("possession", {}).get("coverage_ratio", 0.0)
+            if isinstance(metrics.get("possession", {}), dict)
+            else 0.0
+        ),
+        "possession_frames": int(
+            _number(
+                metrics.get("possession", {}).get("frames_with_possession", 0)
+                if isinstance(metrics.get("possession", {}), dict)
+                else 0
+            )
+        ),
         "event_counts": event_counts,
     }
+
+
+def _claim_readiness(summary: dict[str, Any], limits: dict[str, float]) -> dict:
+    ball_ok = (
+        summary["ball_in_play_coverage_ratio"] >= limits["min_ball_coverage"]
+        and summary["max_ball_speed_px_frame"] <= limits["max_ball_jump_px_frame"]
+    )
+    field_ok = (
+        summary["field_path_samples"] >= limits["min_field_path_samples"]
+        and summary["ball_out_of_bounds_ratio"] <= limits["max_out_of_bounds_ratio"]
+    )
+    teams_ok = (
+        summary["unknown_team_ratio"] <= limits["max_unknown_team_ratio"]
+        and summary["possession_coverage_ratio"] >= limits["min_possession_coverage"]
+    )
+    goals = int(summary.get("event_counts", {}).get("goal_candidate", 0))
+    shots = int(summary.get("event_counts", {}).get("shot", 0))
+    return {
+        "ball_tracking": _claim(
+            ball_ok,
+            "ball coverage and jump checks support trajectory claims",
+            "ball coverage or jump checks need review before claiming robust tracking",
+        ),
+        "metric_speed_trajectory": _claim(
+            field_ok,
+            "calibrated field samples support metric speed and distance claims",
+            "homography/path evidence is too thin for final metric speed claims",
+        ),
+        "team_possession": _claim(
+            teams_ok,
+            "team-color assignment and possession coverage support team possession claims",
+            "team assignment or possession coverage is not strong enough yet",
+        ),
+        "goal_scoring": _claim(
+            goals > 0,
+            f"{goals} goal candidate events were detected",
+            "no goal candidate events were detected in this run",
+        ),
+        "shot_pressure": _claim(
+            shots > 0,
+            f"{shots} shot candidate events were detected",
+            "no shot candidate events were detected in this run",
+        ),
+    }
+
+
+def _claim(ready: bool, ready_reason: str, review_reason: str) -> dict:
+    return {
+        "status": "ready" if ready else "review",
+        "reason": ready_reason if ready else review_reason,
+    }
+
+
+def _ready_claims(readiness: Any) -> str:
+    if not isinstance(readiness, dict):
+        return "none"
+    ready = [
+        str(claim)
+        for claim, values in sorted(readiness.items())
+        if isinstance(values, dict) and values.get("status") == "ready"
+    ]
+    return ", ".join(ready) if ready else "none"
 
 
 def _issues(summary: dict[str, Any], limits: dict[str, float]) -> list[dict]:
@@ -358,6 +453,11 @@ def _quality_index_record(path: Path, report: dict, root: Path) -> dict:
             ),
             "unknown_team_ratio": _number(summary.get("unknown_team_ratio")),
         },
+        "claim_readiness": (
+            report.get("claim_readiness", {})
+            if isinstance(report.get("claim_readiness", {}), dict)
+            else {}
+        ),
         "issues": report.get("issues", []) if isinstance(report.get("issues", []), list) else [],
         "inputs": report.get("inputs", {}) if isinstance(report.get("inputs", {}), dict) else {},
     }

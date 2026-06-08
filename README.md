@@ -56,6 +56,8 @@ outputs/
   events/*event-summary.json          Marcador candidato y conteos deportivos.
   field_analysis/                     Homografia, CSVs y mapas tacticos.
   qa/                                 Reportes automaticos de calidad.
+  qa/*                                Incluyen claim_readiness para saber que metricas son defendibles.
+  pseudolabels/                       Manifiestos de candidatos para fine-tuning posterior.
   videos/                             Videos demo renderizados.
   review/                             Resultados revisados por fecha/camara.
 
@@ -143,6 +145,10 @@ Puntos clave:
 - `analysis.possession_radius_px`: distancia robot-pelota para contar posesion.
 - `analysis.in_play_field_margin_px`: margen para decidir si la pelota esta en juego.
 - `analysis.ball_border_margin_px`: filtro contra falsos positivos en bordes.
+- Los reportes QA generan `claim_readiness`, una matriz de evidencia para
+  `ball_tracking`, `metric_speed_trajectory`, `team_possession`,
+  `goal_scoring` y `shot_pressure`. Esto separa lo que ya se puede defender ante
+  jurado de lo que todavia debe revisarse visualmente.
 
 Plantilla de homografia: `config/top_camera_homography_template.yml`.
 
@@ -185,6 +191,19 @@ python -m samba_futbot.cli sample-frames `
   --out-dir "data\frames\video" `
   --every 5 `
   --max-frames 12
+```
+
+Exportar candidatos de pseudo-etiquetas desde detecciones SAM3, para preparar
+fine-tuning sin entrenar todavia:
+
+```powershell
+python -m samba_futbot.cli export-pseudolabels `
+  --detections "outputs\detections\clip\detections.jsonl" `
+  --out "outputs\pseudolabels\clip-pseudolabel-candidates.json" `
+  --classes "robots,ball,goal_blue,goal_yellow" `
+  --min-score 0.60 `
+  --min-area 20 `
+  --require-mask
 ```
 
 Indexar Drive:

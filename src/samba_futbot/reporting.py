@@ -157,10 +157,29 @@ def _qa_section(path: str | Path) -> list[str]:
         f"- Ball coverage: `{summary.get('ball_in_play_coverage_ratio', 0.0):.1%}`",
         f"- Max ball jump: `{summary.get('max_ball_speed_px_frame', 0.0):.1f} px/frame`",
         f"- Unknown-team robot ratio: `{summary.get('unknown_team_ratio', 0.0):.1%}`",
+        f"- Possession coverage: `{summary.get('possession_coverage_ratio', 0.0):.1%}`",
         "",
-        "### QA Issues",
+        "### Claim Readiness",
         "",
     ]
+    readiness = report.get("claim_readiness", {})
+    if isinstance(readiness, dict) and readiness:
+        for claim, values in sorted(readiness.items()):
+            if not isinstance(values, dict):
+                continue
+            lines.append(
+                f"- `{claim}`: `{values.get('status', 'unknown')}` - "
+                f"{values.get('reason', '')}"
+            )
+    else:
+        lines.append("- No claim-readiness data was generated.")
+    lines.extend(
+        [
+            "",
+            "### QA Issues",
+            "",
+        ]
+    )
     issues = report.get("issues", [])
     if issues:
         for issue in issues:

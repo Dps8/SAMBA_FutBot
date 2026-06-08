@@ -33,6 +33,7 @@ from .field_analysis import (
 from .field_viz import render_field_map
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
+from .pseudolabels import export_pseudolabel_candidates
 from .qa import (
     collect_quality_reports,
     evaluate_run_quality,
@@ -138,6 +139,23 @@ def build_parser() -> argparse.ArgumentParser:
     filter_dets.add_argument("--frame-height", type=int, required=True)
     filter_dets.add_argument("--ball-border-margin-px", type=float, default=4.0)
     filter_dets.set_defaults(func=cmd_filter_detections)
+
+    pseudolabels = sub.add_parser(
+        "export-pseudolabels",
+        help="Exportar candidatos de pseudo-etiquetas desde detecciones SAM3.",
+    )
+    pseudolabels.add_argument("--detections", required=True)
+    pseudolabels.add_argument("--out", required=True)
+    pseudolabels.add_argument("--classes", default="robots,ball,goal_blue,goal_yellow")
+    pseudolabels.add_argument("--min-score", type=float, default=0.60)
+    pseudolabels.add_argument("--min-area", type=float, default=1.0)
+    pseudolabels.add_argument("--require-mask", action=argparse.BooleanOptionalAction, default=True)
+    pseudolabels.add_argument(
+        "--root",
+        default=None,
+        help="Base para escribir mask_path relativo; por defecto usa la carpeta del JSONL.",
+    )
+    pseudolabels.set_defaults(func=cmd_export_pseudolabels)
 
     color_ball = sub.add_parser(
         "detect-orange-ball",
@@ -654,6 +672,31 @@ def cmd_filter_detections(args: argparse.Namespace) -> None:
                 "input_detections": len(detections),
                 "detections": len(filtered),
                 "removed": len(detections) - len(filtered),
+            },
+            indent=2,
+        )
+    )
+
+
+def cmd_export_pseudolabels(args: argparse.Namespace) -> None:
+    classes = [part.strip() for part in args.classes.split(",") if part.strip()]
+    manifest = export_pseudolabel_candidates(
+        args.detections,
+        args.out,
+        classes=classes,
+        min_score=args.min_score,
+        min_area=args.min_area,
+        require_mask=args.require_mask,
+        root=args.root,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "input_detections": manifest["summary"]["input_detections"],
+                "candidates": manifest["summary"]["candidates"],
+                "candidates_by_class": manifest["summary"]["candidates_by_class"],
+                "rejected": manifest["summary"]["rejected"],
             },
             indent=2,
         )

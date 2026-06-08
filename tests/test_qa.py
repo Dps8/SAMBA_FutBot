@@ -21,6 +21,7 @@ class RunQaTest(unittest.TestCase):
                 max_jump=12.0,
                 out_of_bounds=0,
                 path_samples=100,
+                possession_coverage=0.5,
             )
 
             report = evaluate_run_quality(
@@ -32,6 +33,11 @@ class RunQaTest(unittest.TestCase):
         self.assertEqual(report["status"], "good")
         self.assertEqual(report["quality_score"], 100)
         self.assertEqual(report["issues"], [])
+        self.assertEqual(report["claim_readiness"]["ball_tracking"]["status"], "ready")
+        self.assertEqual(
+            report["claim_readiness"]["metric_speed_trajectory"]["status"], "ready"
+        )
+        self.assertEqual(report["claim_readiness"]["team_possession"]["status"], "ready")
 
     def test_low_coverage_and_large_jump_flag_review_or_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,7 +100,14 @@ class RunQaTest(unittest.TestCase):
                     "ball_out_of_bounds_ratio": 0.0,
                     "robot_penalty_area_samples": 0,
                     "unknown_team_ratio": 0.0,
+                    "possession_coverage_ratio": 0.4,
                     "event_counts": {"shot": 2},
+                },
+                "claim_readiness": {
+                    "shot_pressure": {
+                        "status": "ready",
+                        "reason": "2 shot candidate events were detected",
+                    }
                 },
                 "issues": [{"severity": "warning", "code": "low_ball_coverage", "message": "Low."}],
             }
@@ -104,6 +117,8 @@ class RunQaTest(unittest.TestCase):
 
         self.assertIn("Status: `review`", text)
         self.assertIn("`shot`: `2`", text)
+        self.assertIn("Claim Readiness", text)
+        self.assertIn("shot_pressure", text)
 
     def test_collect_quality_reports_ranks_good_before_review_and_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,6 +132,9 @@ class RunQaTest(unittest.TestCase):
                         "ball_in_play_coverage_ratio": 0.7,
                         "unknown_team_ratio": 0.25,
                     },
+                    "claim_readiness": {
+                        "ball_tracking": {"status": "review"},
+                    },
                     "issues": [{"severity": "warning"}],
                 },
             )
@@ -126,6 +144,10 @@ class RunQaTest(unittest.TestCase):
                     "status": "good",
                     "quality_score": 80,
                     "summary": {"ball_in_play_coverage_ratio": 0.9},
+                    "claim_readiness": {
+                        "ball_tracking": {"status": "ready"},
+                        "metric_speed_trajectory": {"status": "ready"},
+                    },
                     "issues": [],
                 },
             )
@@ -140,6 +162,8 @@ class RunQaTest(unittest.TestCase):
         self.assertEqual(reports[0]["path"], "good/clip-qa.json")
         self.assertIn("QA Run Index", text)
         self.assertIn("Unknown teams", text)
+        self.assertIn("Ready claims", text)
+        self.assertIn("ball_tracking, metric_speed_trajectory", text)
         self.assertIn("25.0%", text)
         self.assertIn("good/clip-qa.json", text)
 
@@ -152,6 +176,7 @@ def _write_inputs(
     out_of_bounds: int,
     path_samples: int,
     robot_samples_by_team: dict | None = None,
+    possession_coverage: float = 0.0,
 ) -> tuple[Path, Path, Path]:
     metrics = tmp_path / "metrics.json"
     events = tmp_path / "events.json"
@@ -172,6 +197,10 @@ def _write_inputs(
                 "robots": {"frame_coverage_ratio": 0.9},
             },
             "motion": {"ball": {"max_speed_px_frame": max_jump}},
+            "possession": {
+                "coverage_ratio": possession_coverage,
+                "frames_with_possession": int(100 * possession_coverage),
+            },
         },
     )
     write_json(events, [{"event_type": "shot"}])

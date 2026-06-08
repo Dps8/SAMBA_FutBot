@@ -54,6 +54,16 @@ assignment, so possession-by-team and tactical claims are flagged when color
 classification is not reliable enough.
 Run Markdown reports can now include the QA JSON directly, so a single report
 contains tracking metrics, events, field analysis and quality gates.
+QA now also emits `claim_readiness`, a compact evidence matrix that marks
+whether each run is ready for ball-tracking, metric trajectory/speed,
+team-possession, goal-scoring and shot-pressure claims. This is meant to keep
+the professional submission honest: strong clips can be promoted quickly, while
+weak clips remain candidates instead of becoming unsupported claims.
+The repo also includes an `export-pseudolabels` CLI command that converts
+high-confidence SAM3 detections with saved masks into a compact pseudo-label
+manifest. This does not train a model yet, but it reduces the setup time for the
+next fine-tuning block by making candidate masks auditable and filterable by
+class, score, area and mask availability.
 Full processing commands also write that integrated report by default under
 `outputs/reports`, reducing the number of manual post-processing commands needed
 for reproducible review.
