@@ -31,3 +31,6 @@ outputs/*
 # Local credentials
 .env
 hf_token.txt
+
+# Local/private planning notes
+docs/PROFESSIONAL_STRATEGY.md
