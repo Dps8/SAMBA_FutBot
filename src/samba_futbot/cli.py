@@ -53,8 +53,15 @@ from .qa import (
 )
 from .reporting import write_run_report
 from .sam3_adapter import run_sam3_video
+from .showcase import (
+    collect_showcase_candidates,
+    write_showcase_json,
+    write_showcase_markdown,
+)
+from .situations import analyze_situations
 from .team import assign_robot_teams_from_video
 from .tracking import track_detections
+from .training_export import export_coco_detection, export_yolo_detection
 from .video import extract_video_clip, sample_frames, video_info
 from .visualize import render_demo_video
 from .windowing import (
@@ -188,6 +195,22 @@ def build_parser() -> argparse.ArgumentParser:
     frame_dataset.add_argument("--train-ratio", type=float, default=0.80)
     frame_dataset.add_argument("--val-ratio", type=float, default=0.10)
     frame_dataset.set_defaults(func=cmd_export_frame_dataset)
+
+    coco = sub.add_parser(
+        "export-coco",
+        help="Convertir manifest de export-frame-dataset a COCO detection.",
+    )
+    coco.add_argument("--manifest", required=True)
+    coco.add_argument("--out-dir", required=True)
+    coco.set_defaults(func=cmd_export_coco)
+
+    yolo = sub.add_parser(
+        "export-yolo",
+        help="Convertir manifest de export-frame-dataset a YOLO detection.",
+    )
+    yolo.add_argument("--manifest", required=True)
+    yolo.add_argument("--out-dir", required=True)
+    yolo.set_defaults(func=cmd_export_yolo)
 
     color_ball = sub.add_parser(
         "detect-orange-ball",
@@ -453,6 +476,17 @@ def build_parser() -> argparse.ArgumentParser:
     qa_index.add_argument("--report-out", default=None)
     qa_index.set_defaults(func=cmd_qa_index)
 
+    showcase = sub.add_parser(
+        "showcase-index",
+        help="Seleccionar corridas candidatas para demo final desde reportes QA.",
+    )
+    showcase.add_argument("--root", default="outputs/review")
+    showcase.add_argument("--out", required=True)
+    showcase.add_argument("--report-out", default=None)
+    showcase.add_argument("--limit", type=int, default=12)
+    showcase.add_argument("--required-claims", default="ball_tracking,team_possession")
+    showcase.set_defaults(func=cmd_showcase_index)
+
     track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
     track.add_argument("--detections", required=True)
     track.add_argument("--out", required=True)
@@ -478,6 +512,17 @@ def build_parser() -> argparse.ArgumentParser:
     event_summary.add_argument("--events", required=True)
     event_summary.add_argument("--out", required=True)
     event_summary.set_defaults(func=cmd_event_summary)
+
+    situations = sub.add_parser(
+        "situation-analysis",
+        help="Analizar posesion fina, distancias y probabilidades tacticas.",
+    )
+    situations.add_argument("--tracks", required=True)
+    situations.add_argument("--out", required=True)
+    situations.add_argument("--possession-radius-px", type=float, default=90.0)
+    situations.add_argument("--dispute-margin-px", type=float, default=22.0)
+    situations.add_argument("--frame-width", type=float, default=None)
+    situations.set_defaults(func=cmd_situation_analysis)
 
     game_state = sub.add_parser(
         "game-state",
@@ -835,6 +880,37 @@ def cmd_export_frame_dataset(args: argparse.Namespace) -> None:
                 "crops": manifest["summary"]["crops"],
                 "detections_by_class": manifest["summary"]["detections_by_class"],
                 "frames_by_split": manifest["summary"]["frames_by_split"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_export_coco(args: argparse.Namespace) -> None:
+    paths = export_coco_detection(args.manifest, args.out_dir)
+    print(
+        json.dumps(
+            {"out_dir": args.out_dir, "annotations": {key: str(value) for key, value in paths.items()}},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_export_yolo(args: argparse.Namespace) -> None:
+    exported = export_yolo_detection(args.manifest, args.out_dir)
+    print(
+        json.dumps(
+            {
+                "out_dir": args.out_dir,
+                "data_yaml": str(exported["data_yaml"]),
+                "classes": str(exported["classes"]),
+                "image_lists": {
+                    key: str(value) for key, value in exported["image_lists"].items()
+                },
+                "labels": len(exported["labels"]),
+                "manifest": str(exported["manifest"]),
             },
             ensure_ascii=False,
             indent=2,
@@ -2339,6 +2415,31 @@ def cmd_qa_index(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_showcase_index(args: argparse.Namespace) -> None:
+    required_claims = [part.strip() for part in args.required_claims.split(",") if part.strip()]
+    candidates = collect_showcase_candidates(
+        args.root,
+        limit=args.limit,
+        required_claims=required_claims,
+    )
+    out = write_showcase_json(args.out, candidates)
+    report_out = None
+    if args.report_out:
+        report_out = write_showcase_markdown(args.report_out, candidates)
+    print(
+        json.dumps(
+            {
+                "showcase_index": str(out),
+                "report": str(report_out) if report_out else None,
+                "runs": len(candidates),
+                "best": candidates[0] if candidates else None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def _qa_thresholds(args: argparse.Namespace) -> dict[str, float]:
     mapping = {
         "min_ball_coverage": args.min_ball_coverage,
@@ -2398,6 +2499,31 @@ def cmd_event_summary(args: argparse.Namespace) -> None:
     summary = summarize_events(events)
     write_json(args.out, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_situation_analysis(args: argparse.Namespace) -> None:
+    analysis = analyze_situations(
+        read_detections(args.tracks),
+        possession_radius_px=args.possession_radius_px,
+        dispute_margin_px=args.dispute_margin_px,
+        frame_width=args.frame_width,
+    )
+    write_json(args.out, analysis)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "frames": analysis["summary"]["total_frames"],
+                "frames_with_ball": analysis["summary"]["frames_with_ball"],
+                "possession_states": analysis["summary"]["possession_states"],
+                "average_action_probabilities": analysis["summary"][
+                    "average_action_probabilities"
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def cmd_game_state(args: argparse.Namespace) -> None:

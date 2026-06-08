@@ -224,6 +224,18 @@ casi identicos del mismo clip. Si se necesita una exploracion rapida de un solo
 video, `--split-strategy by-frame` reparte por frame, pero no debe usarse para
 reportar validacion final.
 
+Convertir ese manifest a formatos de entrenamiento:
+
+```powershell
+python -m samba_futbot.cli export-coco `
+  --manifest "outputs\datasets\IMG_9938_f001799_10s\manifest.json" `
+  --out-dir "outputs\datasets\IMG_9938_f001799_10s_coco"
+
+python -m samba_futbot.cli export-yolo `
+  --manifest "outputs\datasets\IMG_9938_f001799_10s\manifest.json" `
+  --out-dir "outputs\datasets\IMG_9938_f001799_10s_yolo"
+```
+
 Indexar Drive:
 
 ```powershell
@@ -478,6 +490,19 @@ python -m samba_futbot.cli event-summary `
   --out "outputs\events\video-event-summary.json"
 ```
 
+Analisis situacional avanzado:
+
+```powershell
+python -m samba_futbot.cli situation-analysis `
+  --tracks "outputs\tracks\video-tracks.jsonl" `
+  --out "outputs\events\video-situations.json" `
+  --frame-width 1080
+```
+
+Este JSON reporta por frame distancia robot-balon, estado de posesion
+`controlled/disputed/free`, riesgo de perder el balon y probabilidades
+heuristicas de pase, tiro y mantener posesion.
+
 Estado de juego y eventos externos:
 
 ```powershell
@@ -579,6 +604,17 @@ python -m samba_futbot.cli qa-index `
   --root "outputs\review" `
   --out "outputs\review\qa-index.json" `
   --report-out "outputs\review\qa-index.md"
+```
+
+Para elegir candidatos de demo final por claims listos:
+
+```powershell
+python -m samba_futbot.cli showcase-index `
+  --root "outputs\review" `
+  --out "outputs\review\showcase-index.json" `
+  --report-out "outputs\review\showcase-index.md" `
+  --required-claims "ball_tracking,team_possession" `
+  --limit 12
 ```
 
 ## Resultados Generados

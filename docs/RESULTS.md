@@ -69,6 +69,10 @@ full frames, class-specific crops and a dataset manifest from any video plus
 detections/tracks file. Its default split is by video, which avoids leaking
 near-duplicate frames from the same clip across train/validation/test when the
 fine-tuning block starts.
+Dataset manifests can now be converted to COCO detection JSON or YOLO detection
+labels with `export-coco` and `export-yolo`, which means the project can move
+from pseudo-label review to actual detector fine-tuning without hand-written
+format conversion.
 Full processing commands also write that integrated report by default under
 `outputs/reports`, reducing the number of manual post-processing commands needed
 for reproducible review.
@@ -109,6 +113,10 @@ heuristic shot-pressure probability toward the left or right goal. Full
 pipelines can generate both videos in one run through `--render-narrative` and
 `--render-analysis`, while `render-demo --style narrative|analysis` can
 re-render either view from existing tracks.
+The `situation-analysis` command adds a separate tactical JSON layer: per-frame
+robot-ball distance ranking, `controlled/disputed/free` possession state, loss
+risk and heuristic pass/shot/hold probabilities. This is intended as the
+structured source for richer analysis overlays and final reports.
 The tactical field map also overlays robot-density heat by team, so heatmaps no
 longer depend only on the ball trajectory; they show where blue, yellow or
 unknown robots spent time across the calibrated field grid.

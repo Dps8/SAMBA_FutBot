@@ -215,6 +215,19 @@ class CliHelpersTest(unittest.TestCase):
         self.assertFalse(args.crop)
         self.assertEqual(args.split_strategy, "by-frame")
 
+    def test_training_export_commands_parse_manifest_and_output(self):
+        coco = build_parser().parse_args(
+            ["export-coco", "--manifest", "dataset/manifest.json", "--out-dir", "coco"]
+        )
+        yolo = build_parser().parse_args(
+            ["export-yolo", "--manifest", "dataset/manifest.json", "--out-dir", "yolo"]
+        )
+
+        self.assertEqual(coco.manifest, "dataset/manifest.json")
+        self.assertEqual(coco.out_dir, "coco")
+        self.assertEqual(yolo.manifest, "dataset/manifest.json")
+        self.assertEqual(yolo.out_dir, "yolo")
+
     def test_jsonable_serializes_private_cli_values(self):
         value = _jsonable({"path": __file__, "func": self.test_jsonable_serializes_private_cli_values})
 
@@ -471,6 +484,29 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.out, "qa-index.json")
         self.assertEqual(args.report_out, "qa-index.md")
 
+    def test_showcase_index_command_parses_claims_and_limit(self):
+        args = build_parser().parse_args(
+            [
+                "showcase-index",
+                "--root",
+                "outputs/review",
+                "--out",
+                "showcase.json",
+                "--report-out",
+                "showcase.md",
+                "--limit",
+                "5",
+                "--required-claims",
+                "ball_tracking,team_possession,shot_pressure",
+            ]
+        )
+
+        self.assertEqual(args.root, "outputs/review")
+        self.assertEqual(args.out, "showcase.json")
+        self.assertEqual(args.report_out, "showcase.md")
+        self.assertEqual(args.limit, 5)
+        self.assertEqual(args.required_claims, "ball_tracking,team_possession,shot_pressure")
+
     def test_event_summary_command_parses_paths(self):
         args = build_parser().parse_args(
             [
@@ -484,6 +520,29 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.events, "events.json")
         self.assertEqual(args.out, "summary.json")
+
+    def test_situation_analysis_command_parses_thresholds(self):
+        args = build_parser().parse_args(
+            [
+                "situation-analysis",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "situations.json",
+                "--possession-radius-px",
+                "80",
+                "--dispute-margin-px",
+                "18",
+                "--frame-width",
+                "1080",
+            ]
+        )
+
+        self.assertEqual(args.tracks, "tracks.jsonl")
+        self.assertEqual(args.out, "situations.json")
+        self.assertEqual(args.possession_radius_px, 80.0)
+        self.assertEqual(args.dispute_margin_px, 18.0)
+        self.assertEqual(args.frame_width, 1080.0)
 
     def test_events_and_metrics_accept_game_state_filter(self):
         event_args = build_parser().parse_args(
