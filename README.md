@@ -227,14 +227,20 @@ reportar validacion final.
 Convertir ese manifest a formatos de entrenamiento:
 
 ```powershell
-python -m samba_futbot.cli export-coco `
-  --manifest "outputs\datasets\IMG_9938_f001799_10s\manifest.json" `
-  --out-dir "outputs\datasets\IMG_9938_f001799_10s_coco"
+python -m samba_futbot.cli merge-frame-datasets `
+  --manifests "outputs\datasets\clip_a\manifest.json,outputs\datasets\clip_b\manifest.json" `
+  --out "outputs\datasets\top_camera_merged\manifest.json" `
+  --split-strategy by-source-balanced
 
-python -m samba_futbot.cli export-yolo `
-  --manifest "outputs\datasets\IMG_9938_f001799_10s\manifest.json" `
-  --out-dir "outputs\datasets\IMG_9938_f001799_10s_yolo"
+python -m samba_futbot.cli export-coco `
+  --manifest "outputs\datasets\top_camera_merged\manifest.json" `
+  --out-dir "outputs\datasets\top_camera_merged_coco"
 ```
+
+`merge-frame-datasets --split-strategy by-source-balanced` mantiene cada video
+en un solo split, pero balancea fuentes completas entre `train` y `val` cuando
+hay pocos clips. Es la opcion recomendada para preparar pseudo-etiquetas
+auditables y fine-tuning sin introducir detectores externos no permitidos.
 
 Indexar Drive:
 

@@ -15,6 +15,7 @@ from .config import deep_get, load_config
 from .color_ball import detect_orange_ball
 from .color_goals import detect_colored_goals, enforce_goal_frame_constraints
 from .dataset import export_frame_dataset
+from .dataset import merge_frame_dataset_manifests
 from .drive import (
     download_manifest_files,
     download_drive_file,
@@ -61,7 +62,7 @@ from .showcase import (
 from .situations import analyze_situations
 from .team import assign_robot_teams_from_video
 from .tracking import track_detections
-from .training_export import export_coco_detection, export_yolo_detection
+from .training_export import export_coco_detection
 from .video import extract_video_clip, sample_frames, video_info
 from .visualize import render_demo_video
 from .windowing import (
@@ -196,6 +197,21 @@ def build_parser() -> argparse.ArgumentParser:
     frame_dataset.add_argument("--val-ratio", type=float, default=0.10)
     frame_dataset.set_defaults(func=cmd_export_frame_dataset)
 
+    merge_dataset = sub.add_parser(
+        "merge-frame-datasets",
+        help="Unir manifests de export-frame-dataset en un dataset multi-video.",
+    )
+    merge_dataset.add_argument("--manifests", required=True, help="Rutas separadas por coma.")
+    merge_dataset.add_argument("--out", required=True)
+    merge_dataset.add_argument(
+        "--split-strategy",
+        choices=["preserve", "by-source-balanced"],
+        default="preserve",
+    )
+    merge_dataset.add_argument("--train-ratio", type=float, default=0.80)
+    merge_dataset.add_argument("--val-ratio", type=float, default=0.10)
+    merge_dataset.set_defaults(func=cmd_merge_frame_datasets)
+
     coco = sub.add_parser(
         "export-coco",
         help="Convertir manifest de export-frame-dataset a COCO detection.",
@@ -203,14 +219,6 @@ def build_parser() -> argparse.ArgumentParser:
     coco.add_argument("--manifest", required=True)
     coco.add_argument("--out-dir", required=True)
     coco.set_defaults(func=cmd_export_coco)
-
-    yolo = sub.add_parser(
-        "export-yolo",
-        help="Convertir manifest de export-frame-dataset a YOLO detection.",
-    )
-    yolo.add_argument("--manifest", required=True)
-    yolo.add_argument("--out-dir", required=True)
-    yolo.set_defaults(func=cmd_export_yolo)
 
     color_ball = sub.add_parser(
         "detect-orange-ball",
@@ -887,31 +895,37 @@ def cmd_export_frame_dataset(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_export_coco(args: argparse.Namespace) -> None:
-    paths = export_coco_detection(args.manifest, args.out_dir)
+def cmd_merge_frame_datasets(args: argparse.Namespace) -> None:
+    manifests = [part.strip() for part in args.manifests.split(",") if part.strip()]
+    manifest = merge_frame_dataset_manifests(
+        manifests,
+        args.out,
+        split_strategy=args.split_strategy,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+    )
     print(
         json.dumps(
-            {"out_dir": args.out_dir, "annotations": {key: str(value) for key, value in paths.items()}},
+            {
+                "out": args.out,
+                "sources": len(manifests),
+                "frames": manifest["summary"]["frames"],
+                "detections": manifest["summary"]["detections"],
+                "crops": manifest["summary"]["crops"],
+                "detections_by_class": manifest["summary"]["detections_by_class"],
+                "frames_by_split": manifest["summary"]["frames_by_split"],
+            },
             ensure_ascii=False,
             indent=2,
         )
     )
 
 
-def cmd_export_yolo(args: argparse.Namespace) -> None:
-    exported = export_yolo_detection(args.manifest, args.out_dir)
+def cmd_export_coco(args: argparse.Namespace) -> None:
+    paths = export_coco_detection(args.manifest, args.out_dir)
     print(
         json.dumps(
-            {
-                "out_dir": args.out_dir,
-                "data_yaml": str(exported["data_yaml"]),
-                "classes": str(exported["classes"]),
-                "image_lists": {
-                    key: str(value) for key, value in exported["image_lists"].items()
-                },
-                "labels": len(exported["labels"]),
-                "manifest": str(exported["manifest"]),
-            },
+            {"out_dir": args.out_dir, "annotations": {key: str(value) for key, value in paths.items()}},
             ensure_ascii=False,
             indent=2,
         )

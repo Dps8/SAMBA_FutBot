@@ -39,6 +39,26 @@ Generated artifacts for the current SAM3 windowed pipeline are stored under
 | `IMG_9933_f017990_10s.mp4` top-fusion HSV v3 | 100.0% in-play | 2.6 | 33.5 | 0 |
 | `IMG_9938_f001799_10s.mp4` top-fusion HSV v3 | 72.7% in-play | 31.5 | 261.9 | 1 |
 
+## June 8 Top-Camera Batch
+
+The local Windows batch under
+`outputs/review/2026-06-08/top_camera_batch` reprocessed 14 existing top-camera
+track variants through game-state filtering, metrics, event detection and
+`situation-analysis`. The strongest ball-tracking variants were:
+
+| Variant | Ball coverage | QA | Ready claims |
+|---|---:|---|---|
+| `IMG_9933_f000000_10s-top-fusion-hsv-v3-minarea` | 100.0% | good / 100 | ball_tracking |
+| `IMG_9933_f017990_10s-top-fusion-hsv-v3-minarea` | 100.0% | good / 100 | ball_tracking |
+| `IMG_9938_f001799_10s-top-fusion-hsv-v2-refined` | 94.0% | review / 90 | ball_tracking, shot_pressure |
+| `IMG_9938_f001799_10s-top-fusion-hsv-v3-minarea` | 72.7% | review / 80 | ball_tracking, shot_pressure |
+
+The same batch rendered 8 presentation videos: narrative and analysis-freeze
+outputs for the four strongest variants, plus QA frames for quick review. The
+batch also produced a merged top-camera training manifest with 320 frames and
+800 detections/crops (`259` ball and `541` robot samples), exported to COCO and
+kept in a source-balanced `240` train / `80` validation split.
+
 `video-680` has an unrealistic max ball speed, which flags a likely ball-track
 jump. This is useful as an automatic QA signal for track fragmentation.
 
@@ -69,10 +89,13 @@ full frames, class-specific crops and a dataset manifest from any video plus
 detections/tracks file. Its default split is by video, which avoids leaking
 near-duplicate frames from the same clip across train/validation/test when the
 fine-tuning block starts.
-Dataset manifests can now be converted to COCO detection JSON or YOLO detection
-labels with `export-coco` and `export-yolo`, which means the project can move
-from pseudo-label review to actual detector fine-tuning without hand-written
-format conversion.
+Dataset manifests can now be converted to COCO detection JSON with
+`export-coco`, keeping the fine-tuning preparation neutral and compatible with
+SAM-style mask/box review without introducing an extra detector family.
+The dataset tools also support `merge-frame-datasets --split-strategy
+by-source-balanced`. The current top-camera batch exported a merged manifest
+with `320` frames, `800` detections/crops, `259` ball samples and `541` robot
+samples split as `240` train frames and `80` validation frames.
 Full processing commands also write that integrated report by default under
 `outputs/reports`, reducing the number of manual post-processing commands needed
 for reproducible review.

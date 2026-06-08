@@ -7,10 +7,11 @@ import numpy as np
 from samba_futbot.dataset import (
     clip_box,
     export_frame_dataset,
+    merge_frame_dataset_manifests,
     selected_detections_by_frame,
     split_for_key,
 )
-from samba_futbot.io_utils import read_json, write_detections
+from samba_futbot.io_utils import read_json, write_detections, write_json
 from samba_futbot.types import Detection
 from samba_futbot.video import require_cv2
 
@@ -95,6 +96,55 @@ class DatasetExportTest(unittest.TestCase):
         self.assertEqual(manifest["summary"]["frames"], 2)
         self.assertEqual(saved["summary"]["detections_by_class"], {"ball": 1, "robots": 1})
         self.assertEqual(saved["summary"]["crops"], 2)
+
+    def test_merge_frame_dataset_manifests_resolves_paths_and_summarizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "first" / "manifest.json"
+            second = root / "second" / "manifest.json"
+            out = root / "merged" / "manifest.json"
+            write_json(first, _dataset_manifest("frames/a.jpg", "crops/a.jpg", "train", "ball"))
+            write_json(second, _dataset_manifest("frames/b.jpg", "crops/b.jpg", "val", "robots"))
+
+            merged = merge_frame_dataset_manifests(
+                [first, second],
+                out,
+                split_strategy="by-source-balanced",
+                train_ratio=0.5,
+                val_ratio=0.5,
+            )
+            saved = read_json(out)
+
+        self.assertEqual(merged["summary"]["frames"], 2)
+        self.assertEqual(saved["summary"]["detections_by_class"], {"ball": 1, "robots": 1})
+        self.assertEqual(saved["summary"]["frames_by_split"], {"train": 1, "val": 1})
+        self.assertEqual(saved["merge"]["split_strategy"], "by-source-balanced")
+        self.assertTrue(Path(saved["images"][0]["image_path"]).is_absolute())
+        self.assertTrue(Path(saved["images"][0]["detections"][0]["crop_path"]).is_absolute())
+
+
+def _dataset_manifest(image_path: str, crop_path: str, split: str, class_name: str) -> dict:
+    return {
+        "schema": "samba_futbot.frame_dataset.v1",
+        "summary": {},
+        "images": [
+            {
+                "image_path": image_path,
+                "width": 100,
+                "height": 100,
+                "split": split,
+                "detections": [
+                    {
+                        "class_name": class_name,
+                        "score": 0.9,
+                        "box": [10, 10, 20, 20],
+                        "crop_path": crop_path,
+                    }
+                ],
+                "crops": [crop_path],
+            }
+        ],
+    }
 
 
 if __name__ == "__main__":

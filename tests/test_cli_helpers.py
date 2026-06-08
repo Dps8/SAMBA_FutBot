@@ -216,17 +216,26 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.split_strategy, "by-frame")
 
     def test_training_export_commands_parse_manifest_and_output(self):
+        merge = build_parser().parse_args(
+            [
+                "merge-frame-datasets",
+                "--manifests",
+                "a/manifest.json,b/manifest.json",
+                "--out",
+                "merged/manifest.json",
+                "--split-strategy",
+                "by-source-balanced",
+            ]
+        )
         coco = build_parser().parse_args(
             ["export-coco", "--manifest", "dataset/manifest.json", "--out-dir", "coco"]
         )
-        yolo = build_parser().parse_args(
-            ["export-yolo", "--manifest", "dataset/manifest.json", "--out-dir", "yolo"]
-        )
 
+        self.assertEqual(merge.manifests, "a/manifest.json,b/manifest.json")
+        self.assertEqual(merge.out, "merged/manifest.json")
+        self.assertEqual(merge.split_strategy, "by-source-balanced")
         self.assertEqual(coco.manifest, "dataset/manifest.json")
         self.assertEqual(coco.out_dir, "coco")
-        self.assertEqual(yolo.manifest, "dataset/manifest.json")
-        self.assertEqual(yolo.out_dir, "yolo")
 
     def test_jsonable_serializes_private_cli_values(self):
         value = _jsonable({"path": __file__, "func": self.test_jsonable_serializes_private_cli_values})

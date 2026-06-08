@@ -5,9 +5,7 @@ from pathlib import Path
 from samba_futbot.io_utils import read_json, write_json
 from samba_futbot.training_export import (
     export_coco_detection,
-    export_yolo_detection,
     manifest_to_coco_detection,
-    yolo_lines_for_image,
 )
 
 
@@ -74,46 +72,6 @@ class TrainingExportTest(unittest.TestCase):
         self.assertEqual(test["images"][0]["split"], "test")
         self.assertEqual(test["annotations"], [])
         self.assertEqual(val["categories"], [{"id": 1, "name": "ball"}, {"id": 2, "name": "robots"}])
-
-    def test_yolo_lines_for_image_normalizes_xywh_to_zero_one(self):
-        image = synthetic_manifest()["images"][0]
-        lines = yolo_lines_for_image(image, {"ball": 0, "robots": 1})
-
-        self.assertEqual(lines[0], "1 0.250000 0.300000 0.300000 0.400000")
-        self.assertEqual(lines[1], "0 0.550000 0.500000 0.100000 0.200000")
-        for line in lines:
-            values = [float(part) for part in line.split()[1:]]
-            self.assertTrue(all(0.0 <= value <= 1.0 for value in values))
-
-    def test_export_yolo_detection_writes_labels_lists_and_data_yaml_by_split(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            dataset_dir = root / "dataset"
-            manifest_path = dataset_dir / "manifest.json"
-            write_json(manifest_path, synthetic_manifest())
-
-            exported = export_yolo_detection(manifest_path, root / "yolo")
-            classes = exported["classes"].read_text(encoding="utf-8").splitlines()
-            train_list = exported["image_lists"]["train"].read_text(encoding="utf-8").splitlines()
-            data_yaml = exported["data_yaml"].read_text(encoding="utf-8")
-            label_manifest = read_json(exported["manifest"])
-            train_label = next(path for path in exported["labels"] if "\\train\\" in str(path) or "/train/" in str(path))
-            train_label_lines = train_label.read_text(encoding="utf-8").splitlines()
-
-        self.assertEqual(classes, ["ball", "robots"])
-        self.assertEqual(train_list, [str((dataset_dir / "frames/clip/clip_f000000.jpg").resolve())])
-        self.assertIn("train: images/train.txt", data_yaml)
-        self.assertIn("val: images/val.txt", data_yaml)
-        self.assertIn("test: images/test.txt", data_yaml)
-        self.assertIn("names: ['ball', 'robots']", data_yaml)
-        self.assertEqual(
-            train_label_lines,
-            [
-                "1 0.250000 0.300000 0.300000 0.400000",
-                "0 0.550000 0.500000 0.100000 0.200000",
-            ],
-        )
-        self.assertEqual(label_manifest["labels"][0]["split"], "train")
 
 
 if __name__ == "__main__":

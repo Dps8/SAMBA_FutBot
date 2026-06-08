@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
 
-from .io_utils import read_detections, write_json
+from .io_utils import read_detections, read_json, write_json
 from .types import Detection
 from .video import require_cv2, video_info
 
@@ -180,6 +180,84 @@ def selected_detections_by_frame(
     return selected
 
 
+def merge_frame_dataset_manifests(
+    manifest_paths: Iterable[str | Path],
+    out_path: str | Path,
+    *,
+    split_strategy: str = "preserve",
+    train_ratio: float = 0.80,
+    val_ratio: float = 0.10,
+) -> dict:
+    paths = [Path(path) for path in manifest_paths]
+    source_splits = (
+        _balanced_source_splits(paths, train_ratio=train_ratio, val_ratio=val_ratio)
+        if split_strategy == "by-source-balanced"
+        else {}
+    )
+    manifests = []
+    images = []
+    class_counts = Counter()
+    split_counts = Counter()
+    crop_count = 0
+    for path in paths:
+        manifest = read_json(path)
+        if not isinstance(manifest, dict):
+            raise ValueError(f"Expected dataset manifest object: {path}")
+        manifests.append(str(path))
+        base = path.parent
+        for image in manifest.get("images", []):
+            if not isinstance(image, dict):
+                continue
+            merged_image = dict(image)
+            if path in source_splits:
+                merged_image["split"] = source_splits[path]
+            merged_image["image_path"] = _absolute_dataset_path(
+                str(image.get("image_path", "")),
+                base,
+            )
+            detections = []
+            for detection in image.get("detections", []):
+                if not isinstance(detection, dict):
+                    continue
+                merged_detection = dict(detection)
+                class_name = str(merged_detection.get("class_name", "unknown"))
+                class_counts[class_name] += 1
+                if merged_detection.get("crop_path"):
+                    merged_detection["crop_path"] = _absolute_dataset_path(
+                        str(merged_detection["crop_path"]),
+                        base,
+                    )
+                    crop_count += 1
+                detections.append(merged_detection)
+            merged_image["detections"] = detections
+            if merged_image.get("crops"):
+                merged_image["crops"] = [
+                    _absolute_dataset_path(str(crop), base) for crop in merged_image["crops"]
+                ]
+            split_counts[str(merged_image.get("split", "unknown"))] += 1
+            images.append(merged_image)
+
+    merged = {
+        "schema": "samba_futbot.frame_dataset_merged.v1",
+        "sources": manifests,
+        "merge": {
+            "split_strategy": split_strategy,
+            "train_ratio": train_ratio,
+            "val_ratio": val_ratio,
+        },
+        "summary": {
+            "frames": len(images),
+            "detections": sum(len(image.get("detections", [])) for image in images),
+            "crops": crop_count,
+            "detections_by_class": dict(sorted(class_counts.items())),
+            "frames_by_split": dict(sorted(split_counts.items())),
+        },
+        "images": images,
+    }
+    write_json(out_path, merged)
+    return merged
+
+
 def split_for_key(
     key: str,
     *,
@@ -218,3 +296,42 @@ def clip_box(
 
 def _relative(path: Path, root: Path) -> str:
     return str(path.resolve().relative_to(root.resolve())).replace("\\", "/")
+
+
+def _absolute_dataset_path(path: str, base: Path) -> str:
+    raw = Path(path)
+    if raw.is_absolute():
+        return str(raw)
+    return str((base / raw).resolve())
+
+
+def _balanced_source_splits(
+    paths: list[Path],
+    *,
+    train_ratio: float,
+    val_ratio: float,
+) -> dict[Path, str]:
+    if not paths:
+        return {}
+    if train_ratio <= 0 or train_ratio >= 1:
+        raise ValueError("train_ratio must be between 0 and 1")
+    if val_ratio < 0 or train_ratio + val_ratio > 1:
+        raise ValueError("train_ratio + val_ratio must be 1 or below")
+    ordered = sorted(paths, key=lambda path: path.as_posix())
+    total = len(ordered)
+    train_count = max(1, round(total * train_ratio))
+    val_count = round(total * val_ratio)
+    if total >= 2:
+        val_count = max(1, val_count)
+    if train_count + val_count > total:
+        train_count = max(1, total - val_count)
+    splits = {}
+    for index, path in enumerate(ordered):
+        if index < train_count:
+            split = "train"
+        elif index < train_count + val_count:
+            split = "val"
+        else:
+            split = "test"
+        splits[path] = split
+    return splits
