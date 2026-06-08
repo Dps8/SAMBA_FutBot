@@ -446,6 +446,21 @@ python -m samba_futbot.cli event-summary `
   --out "outputs\events\video-event-summary.json"
 ```
 
+Estado de juego y eventos externos:
+
+```powershell
+python -m samba_futbot.cli game-state `
+  --tracks "outputs\tracks\video-tracks.jsonl" `
+  --out "outputs\events\video-game-state.json" `
+  --events-out "outputs\events\video-external-events.json" `
+  --segments-out "outputs\events\video-game-segments.json"
+```
+
+Este comando marca frames/segmentos `in_play`, `dead_ball` y
+`human_intervention`, y genera candidatos de `robot_removed` y
+`robot_disabled`. Es una primera capa heuristica para separar juego real de
+pausas, intervenciones y mantenimiento antes de defender metricas finales.
+
 Render demo narrativo:
 
 ```powershell

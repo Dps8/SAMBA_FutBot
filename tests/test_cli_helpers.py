@@ -414,6 +414,29 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.events, "events.json")
         self.assertEqual(args.out, "summary.json")
 
+    def test_game_state_command_parses_outputs_and_thresholds(self):
+        args = build_parser().parse_args(
+            [
+                "game-state",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "game-state.json",
+                "--events-out",
+                "external-events.json",
+                "--segments-out",
+                "segments.json",
+                "--missing-ball-frames",
+                "8",
+            ]
+        )
+
+        self.assertEqual(args.tracks, "tracks.jsonl")
+        self.assertEqual(args.out, "game-state.json")
+        self.assertEqual(args.events_out, "external-events.json")
+        self.assertEqual(args.segments_out, "segments.json")
+        self.assertEqual(args.missing_ball_frames, 8)
+
     def test_render_demo_command_accepts_events_overlay(self):
         args = build_parser().parse_args(
             [

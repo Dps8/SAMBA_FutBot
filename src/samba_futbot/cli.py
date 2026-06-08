@@ -31,6 +31,12 @@ from .field_analysis import (
     write_field_zone_control_csv,
 )
 from .field_viz import render_field_map
+from .game_state import (
+    classify_frame_states,
+    detect_external_events,
+    detect_game_segments,
+    play_mask_from_segments,
+)
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
 from .pseudolabels import export_pseudolabel_candidates
@@ -442,6 +448,22 @@ def build_parser() -> argparse.ArgumentParser:
     event_summary.add_argument("--events", required=True)
     event_summary.add_argument("--out", required=True)
     event_summary.set_defaults(func=cmd_event_summary)
+
+    game_state = sub.add_parser(
+        "game-state",
+        help="Detectar estado de juego y eventos externos desde tracks.",
+    )
+    game_state.add_argument("--tracks", required=True)
+    game_state.add_argument("--out", required=True)
+    game_state.add_argument("--events-out", default=None)
+    game_state.add_argument("--segments-out", default=None)
+    game_state.add_argument("--possession-radius-px", type=float, default=90.0)
+    game_state.add_argument("--in-play-field-margin-px", type=float, default=8.0)
+    game_state.add_argument("--missing-ball-frames", type=int, default=12)
+    game_state.add_argument("--robot-removed-after-frames", type=int, default=18)
+    game_state.add_argument("--robot-disabled-after-frames", type=int, default=45)
+    game_state.add_argument("--stationary-threshold-px", type=float, default=2.0)
+    game_state.set_defaults(func=cmd_game_state)
 
     metrics = sub.add_parser("metrics", help="Calcular metricas operativas.")
     metrics.add_argument("--tracks", required=True)
@@ -2048,6 +2070,51 @@ def cmd_event_summary(args: argparse.Namespace) -> None:
     summary = summarize_events(events)
     write_json(args.out, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_game_state(args: argparse.Namespace) -> None:
+    detections = read_detections(args.tracks)
+    states = classify_frame_states(
+        detections,
+        possession_radius_px=args.possession_radius_px,
+        field_margin_px=args.in_play_field_margin_px,
+        missing_ball_frames=args.missing_ball_frames,
+        robot_removed_after_frames=args.robot_removed_after_frames,
+        robot_disabled_after_frames=args.robot_disabled_after_frames,
+        stationary_threshold_px=args.stationary_threshold_px,
+    )
+    segments = detect_game_segments(states)
+    external_events = detect_external_events(states)
+    payload = {
+        "schema": "samba_futbot.game_state.v1",
+        "tracks": args.tracks,
+        "summary": {
+            "frames": len(states),
+            "segments": len(segments),
+            "external_events": len(external_events),
+            "playable_frames": len(play_mask_from_segments(segments)),
+        },
+        "states": [state.to_record() for state in states],
+        "segments": [segment.to_record() for segment in segments],
+        "events": [event.to_record() for event in external_events],
+    }
+    write_json(args.out, payload)
+    if args.segments_out:
+        write_json(args.segments_out, [segment.to_record() for segment in segments])
+    if args.events_out:
+        write_events(args.events_out, external_events)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "events_out": args.events_out,
+                "segments_out": args.segments_out,
+                **payload["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def cmd_metrics(args: argparse.Namespace) -> None:
