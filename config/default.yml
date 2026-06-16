@@ -149,7 +149,7 @@ goal_detection:
   adaptive_min_pixels: 120
   spatial_gate_from_seeds: true
   seed_spatial_margin_px: 90
-  require_seed_for_color: true
+  require_seed_for_color: false
   require_field_overlap: true
   infer_missing_opposite: false
   inferred_goal_score: 0.28

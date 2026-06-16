@@ -131,7 +131,7 @@ goal_detection:
   adaptive_hsv_margin: [12, 45, 45]
   spatial_gate_from_seeds: true
   seed_spatial_margin_px: 90
-  require_seed_for_color: true
+  require_seed_for_color: false
   require_field_overlap: true
   field_margin_px: 18
   max_per_frame_per_class: 1
@@ -156,7 +156,8 @@ goal_detection:
 - `require_seed_for_color`: si esta activo, no se aceptan detecciones
   cromaticas de una porteria sin al menos una semilla SAM3 de esa misma clase.
   Esto reduce falsos positivos cuando hay objetos externos con colores
-  parecidos.
+  parecidos. El default actual esta apagado para recuperar mejor la porteria
+  azul por color cuando SAM3 no propone una caja azul.
 - `require_field_overlap`: exige que la porteria este sobre/tocando el campo
   verde detectado. Si no hay `field` en ese frame, la porteria se descarta.
 - `max_per_frame_per_class`: se deja en `1` porque reglamentariamente solo debe

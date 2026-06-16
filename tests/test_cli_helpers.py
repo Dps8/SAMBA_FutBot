@@ -52,9 +52,10 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.freeze_seconds, 3.0)
         self.assertTrue(args.mask_overlay)
         self.assertEqual(args.mask_alpha, 0.35)
-        self.assertEqual(args.label_scale, 0.75)
+        self.assertEqual(args.label_scale, 1.05)
         self.assertEqual(args.box_thickness, 3)
         self.assertEqual(args.visual_hold_frames, 12)
+        self.assertFalse(args.show_team_labels)
         self.assertTrue(args.generate_game_state)
         self.assertTrue(args.filter_by_game_state)
         self.assertEqual(args.game_state_missing_ball_frames, 12)
@@ -1208,6 +1209,7 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.label_scale, 0.9)
         self.assertEqual(args.box_thickness, 5)
         self.assertEqual(args.visual_hold_frames, 18)
+        self.assertFalse(args.show_team_labels)
 
 
 if __name__ == "__main__":

@@ -134,9 +134,10 @@ Puntos clave:
 - `goal_detection.spatial_gate_from_seeds`: si hay cajas semilla de SAM3,
   limita la busqueda cromatica a regiones cercanas a esas coordenadas para
   evitar objetos externos del mismo color.
-- `goal_detection.require_seed_for_color`: modo conservador. Si esta activo,
-  una clase de porteria necesita al menos una caja semilla de SAM3 antes de
-  aceptar detecciones cromaticas de esa clase.
+- `goal_detection.require_seed_for_color`: si esta activo, una clase de
+  porteria necesita al menos una caja semilla de SAM3 antes de aceptar
+  detecciones cromaticas de esa clase. El default actual es `false` para que la
+  porteria azul pueda recuperarse por color aunque SAM3 no la haya propuesto.
 - `goal_detection.require_field_overlap`: exige que la porteria aceptada este
   sobre o tocando el campo detectado. Con `max_per_frame_per_class: 1`, el
   pipeline conserva como maximo una porteria azul y una amarilla por frame.
@@ -152,7 +153,9 @@ Puntos clave:
   frame para los clips revisados del reto.
 - En los renders, los colores se asignan por objeto antes que por equipo:
   pelota naranja, robots rojo/blanco y porterias con su color real. Las
-  porterias inferidas por geometria no se dibujan en el video demo.
+  porterias inferidas por geometria no se dibujan en el video demo. Las labels
+  no muestran equipo por defecto; usa `--show-team-labels` solo cuando el
+  reporte de calidad de equipos sea defendible.
 - `analysis.possession_radius_px`: distancia robot-pelota para contar posesion.
 - `analysis.in_play_field_margin_px`: margen para decidir si la pelota esta en juego.
 - `analysis.ball_border_margin_px`: filtro contra falsos positivos en bordes.

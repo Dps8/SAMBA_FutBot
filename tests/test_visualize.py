@@ -49,8 +49,12 @@ class VisualizeTest(unittest.TestCase):
 
         header = _frame_header(20, owner, event)
 
-        self.assertIn("possession: yellow #7", header)
+        self.assertIn("possession: robot #7", header)
         self.assertIn("event: goal candidate yellow", header)
+
+        team_header = _frame_header(20, owner, event, show_team_labels=True)
+
+        self.assertIn("possession: yellow #7", team_header)
 
     def test_confirmed_goal_has_distinct_narrative_label(self):
         event = {
@@ -71,8 +75,9 @@ class VisualizeTest(unittest.TestCase):
 
         header = _frame_header(3, None, nearest_distance=nearest, style="narrative")
 
-        self.assertIn("nearest ball: blue #4 38px", header)
+        self.assertIn("nearest ball: robot #4 38px", header)
         self.assertEqual(_distance_label(nearest), "blue #4 38px")
+        self.assertEqual(_distance_label(nearest, show_team=False), "robot #4 38px")
 
     def test_robot_ball_distances_rank_nearest_robots(self):
         frame = [
@@ -187,7 +192,12 @@ class VisualizeTest(unittest.TestCase):
 
         self.assertIn("probability 64%", lines)
         self.assertIn("target right", lines)
-        self.assertIn("nearest blue #7 32px", lines)
+        self.assertIn("nearest robot #7 32px", lines)
+        self.assertNotIn("Balon avanza hacia porteria.", lines)
+
+        team_lines = _freeze_overlay_summary(event, distances, show_team_labels=True)
+
+        self.assertIn("nearest blue #7 32px", team_lines)
 
     def test_load_detection_mask_reads_npz_by_index(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -545,9 +545,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     process.add_argument("--mask-overlay", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--mask-alpha", type=float, default=0.35)
-    process.add_argument("--label-scale", type=float, default=0.75)
+    process.add_argument("--label-scale", type=float, default=1.05)
     process.add_argument("--box-thickness", type=int, default=3)
     process.add_argument("--visual-hold-frames", type=int, default=12)
+    process.add_argument("--show-team-labels", action=argparse.BooleanOptionalAction, default=False)
     process.set_defaults(func=cmd_process_video)
 
     top_camera = sub.add_parser(
@@ -657,9 +658,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     top_camera.add_argument("--mask-overlay", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--mask-alpha", type=float, default=0.35)
-    top_camera.add_argument("--label-scale", type=float, default=0.75)
+    top_camera.add_argument("--label-scale", type=float, default=1.05)
     top_camera.add_argument("--box-thickness", type=int, default=3)
     top_camera.add_argument("--visual-hold-frames", type=int, default=12)
+    top_camera.add_argument("--show-team-labels", action=argparse.BooleanOptionalAction, default=False)
     top_camera.set_defaults(func=cmd_process_top_camera)
 
     field_analysis = sub.add_parser(
@@ -900,9 +902,10 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--freeze-event-types", default=None)
     render.add_argument("--mask-overlay", action=argparse.BooleanOptionalAction, default=True)
     render.add_argument("--mask-alpha", type=float, default=0.35)
-    render.add_argument("--label-scale", type=float, default=0.75)
+    render.add_argument("--label-scale", type=float, default=1.05)
     render.add_argument("--box-thickness", type=int, default=3)
     render.add_argument("--visual-hold-frames", type=int, default=12)
+    render.add_argument("--show-team-labels", action=argparse.BooleanOptionalAction, default=False)
     render.set_defaults(func=cmd_render_demo)
 
     info = sub.add_parser("video-info", help="Mostrar metadata de video.")
@@ -2731,6 +2734,7 @@ def _render_pipeline_videos(
             label_scale=args.label_scale,
             box_thickness=args.box_thickness,
             visual_hold_frames=args.visual_hold_frames,
+            show_team_labels=args.show_team_labels,
         )
     return rendered
 
@@ -2914,7 +2918,7 @@ def _detect_color_goals_for_process(
         adaptive_min_pixels=int(goal_config.get("adaptive_min_pixels", 120)),
         spatial_gate_from_seeds=bool(goal_config.get("spatial_gate_from_seeds", True)),
         seed_spatial_margin_px=float(goal_config.get("seed_spatial_margin_px", 90.0)),
-        require_seed_for_color=bool(goal_config.get("require_seed_for_color", True)),
+        require_seed_for_color=bool(goal_config.get("require_seed_for_color", False)),
         require_field_overlap=bool(goal_config.get("require_field_overlap", True)),
         field_margin_px=float(goal_config.get("field_margin_px", 18.0)),
         min_area=float(goal_config.get("min_area", 180.0)),
@@ -3563,6 +3567,7 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         label_scale=args.label_scale,
         box_thickness=args.box_thickness,
         visual_hold_frames=args.visual_hold_frames,
+        show_team_labels=args.show_team_labels,
     )
     print(json.dumps({"video": str(out), "style": args.style}, indent=2))
 

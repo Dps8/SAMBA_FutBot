@@ -95,9 +95,10 @@ def render_demo_video(
     freeze_event_types: str | list[str] | tuple[str, ...] | set[str] | None = None,
     mask_overlay: bool = True,
     mask_alpha: float = 0.35,
-    label_scale: float = 0.75,
+    label_scale: float = 1.05,
     box_thickness: int = 3,
     visual_hold_frames: int = 12,
+    show_team_labels: bool = False,
 ) -> Path:
     if style not in {"narrative", "analysis"}:
         raise ValueError("style must be 'narrative' or 'analysis'.")
@@ -167,6 +168,7 @@ def render_demo_video(
                     label_scale=label_scale,
                     box_thickness=box_thickness,
                     label_boxes=label_boxes,
+                    show_team_labels=show_team_labels,
                 )
         _draw_held_detections(
             cv2,
@@ -196,6 +198,7 @@ def render_demo_video(
                 event,
                 nearest_distance=distances[0] if distances else None,
                 style=style,
+                show_team_labels=show_team_labels,
             ),
         )
         writer.write(np.hstack([frame, annotated]))
@@ -223,6 +226,7 @@ def render_demo_video(
                     ball,
                     previous_ball,
                     width,
+                    show_team_labels=show_team_labels,
                 )
                 stacked_freeze = np.hstack([frame, freeze_frame])
                 for _ in range(freeze_frames):
@@ -251,6 +255,7 @@ def _draw_detection(
     label_scale: float = 0.75,
     box_thickness: int = 3,
     label_boxes: list[tuple[int, int, int, int]] | None = None,
+    show_team_labels: bool = False,
 ) -> None:
     x1, y1, x2, y2 = [int(round(v)) for v in det.box]
     color_rgb = class_color(det.class_name, det.team, det.track_id)
@@ -273,7 +278,7 @@ def _draw_detection(
                 cv2.line(frame, a, b, color_bgr, 2)
 
     if det.class_name != "field":
-        label = _detection_label(det, style=style)
+        label = _detection_label(det, style=style, show_team=show_team_labels)
         _draw_label(
             cv2,
             frame,
@@ -509,11 +514,11 @@ def _boxes_overlap(
     )
 
 
-def _detection_label(det: Detection, *, style: str) -> str:
+def _detection_label(det: Detection, *, style: str, show_team: bool = False) -> str:
     label = det.class_name
     if det.track_id is not None:
         label += f" #{det.track_id}"
-    if det.team:
+    if show_team and det.team:
         label += f" {det.team}"
     if style == "analysis":
         label += f" {det.score:.2f}"
@@ -548,18 +553,26 @@ def _frame_header(
     *,
     nearest_distance: dict | None = None,
     style: str = "narrative",
+    show_team_labels: bool = False,
 ) -> str:
     prefix = "SAMBA FutBot: analysis" if style == "analysis" else "SAMBA FutBot: match"
     if owner is None:
         header = f"{prefix} | possession: none"
     else:
-        team = owner.team or "unknown"
-        header = f"{prefix} | possession: {team} #{owner.track_id}"
+        owner_label = _actor_label(owner.team, owner.track_id, show_team=show_team_labels)
+        header = f"{prefix} | possession: {owner_label}"
     if nearest_distance and style == "narrative":
-        header += f" | nearest ball: {_distance_label(nearest_distance)}"
+        header += f" | nearest ball: {_distance_label(nearest_distance, show_team=show_team_labels)}"
     if event:
         header += f" | event: {_event_label(event)}"
     return f"{header} | frame {frame_index}"
+
+
+def _actor_label(team: str | None, track_id: int | str | None, *, show_team: bool = False) -> str:
+    if show_team:
+        prefix = team or "unknown"
+        return f"{prefix} #{track_id}" if track_id is not None else prefix
+    return f"robot #{track_id}" if track_id is not None else "robot"
 
 
 def _events_by_frame(events_path: str | Path | None) -> dict[int, list[dict]]:
@@ -664,7 +677,12 @@ def _event_label(event: dict) -> str:
     return event_type
 
 
-def _freeze_overlay_summary(event: dict, distances: list[dict]) -> list[str]:
+def _freeze_overlay_summary(
+    event: dict,
+    distances: list[dict],
+    *,
+    show_team_labels: bool = False,
+) -> list[str]:
     metadata = event.get("metadata", {}) if isinstance(event.get("metadata", {}), dict) else {}
     lines = []
     probability = metadata.get("goal_probability", metadata.get("probability"))
@@ -676,9 +694,9 @@ def _freeze_overlay_summary(event: dict, distances: list[dict]) -> list[str]:
     if isinstance(speed, int | float):
         lines.append(f"ball speed {float(speed):.1f} px/f")
     if distances:
-        lines.append(f"nearest {_distance_label(distances[0])}")
+        lines.append(f"nearest {_distance_label(distances[0], show_team=show_team_labels)}")
     description = str(event.get("description", "")).strip()
-    if description:
+    if description and show_team_labels:
         lines.append(description)
     return lines[:4]
 
@@ -731,10 +749,10 @@ def _best_ball(frame_dets: list[Detection]) -> Detection | None:
     return max(balls, key=lambda det: det.score, default=None)
 
 
-def _distance_label(record: dict) -> str:
+def _distance_label(record: dict, *, show_team: bool = True) -> str:
     team = str(record.get("team") or "unknown")
     track_id = record.get("track_id")
-    robot_label = f"{team} #{track_id}" if track_id is not None else team
+    robot_label = _actor_label(team, track_id, show_team=show_team)
     return f"{robot_label} {float(record.get('distance_px', 0.0)):.0f}px"
 
 
@@ -775,6 +793,7 @@ def _draw_freeze_overlay(
     ball: Detection | None,
     previous_ball: Detection | None,
     frame_width: int,
+    show_team_labels: bool = False,
 ) -> None:
     overlay = frame.copy()
     height, width = frame.shape[:2]
@@ -794,7 +813,9 @@ def _draw_freeze_overlay(
         (255, 255, 255),
         2,
     )
-    for index, line in enumerate(_freeze_overlay_summary(event, distances)):
+    for index, line in enumerate(
+        _freeze_overlay_summary(event, distances, show_team_labels=show_team_labels)
+    ):
         cv2.putText(
             frame,
             line,
