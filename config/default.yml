@@ -175,12 +175,13 @@ goal_detection:
 
 robot_filter:
   enabled: true
-  max_per_frame: 2
+  max_per_frame: 4
   min_area: 350
   max_area_ratio: 0.08
   containment_threshold: 0.82
   iou_threshold: 0.55
   min_center_distance_px: 28
+  protect_near_ball_px: 180
 
 ball_detection:
   # The current rule ball is orange, but color is treated as a profile, not as

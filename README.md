@@ -149,8 +149,9 @@ Puntos clave:
 - `robot_filter.enabled`: activa el filtro conservador para camara superior.
   Reduce cajas repetidas de robots usando varios criterios combinados: area
   minima, area maxima relativa al frame, IoU, contencion, distancia minima entre
-  centros y maximo por frame. El default actual conserva hasta 2 robots por
-  frame para los clips revisados del reto.
+  centros y maximo por frame. El default actual conserva hasta 4 robots por
+  frame y protege candidatos cercanos al balon, porque esos robots suelen ser
+  los mas importantes para posesion, distancia al balon y analisis de jugada.
 - En los renders, los colores se asignan por objeto antes que por equipo:
   pelota naranja, robots rojo/blanco y porterias con su color real. Las
   porterias inferidas por geometria no se dibujan en el video demo. Las labels

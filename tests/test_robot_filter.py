@@ -44,6 +44,25 @@ class RobotFilterTest(unittest.TestCase):
 
         self.assertEqual([det.track_id for det in filtered], [1, 3])
 
+    def test_filter_robot_detections_protects_robot_near_ball(self):
+        detections = [
+            Detection(0, "robots", 0.95, (10, 10, 40, 40), track_id=1),
+            Detection(0, "robots", 0.93, (90, 10, 120, 40), track_id=2),
+            Detection(0, "robots", 0.55, (205, 190, 245, 230), track_id=3),
+            Detection(0, "ball", 0.90, (235, 210, 245, 220), track_id=9),
+        ]
+
+        filtered = filter_robot_detections(
+            detections,
+            max_per_frame=2,
+            protect_near_ball_px=70,
+            containment_threshold=0.95,
+            iou_threshold=0.95,
+        )
+
+        robots = [det for det in filtered if det.class_name == "robots"]
+        self.assertEqual([det.track_id for det in robots], [1, 3])
+
     def test_filter_robot_detections_keeps_non_robot_detections(self):
         detections = [
             Detection(0, "field", 0.9, (0, 0, 100, 100)),

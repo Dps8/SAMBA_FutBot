@@ -5,7 +5,7 @@ from dataclasses import replace
 from math import hypot
 from typing import Iterable
 
-from .play_state import ROBOT_CLASSES
+from .play_state import BALL_CLASSES, ROBOT_CLASSES
 from .tracking import iou
 from .types import Detection
 
@@ -21,14 +21,18 @@ def filter_robot_detections(
     containment_threshold: float = 0.82,
     iou_threshold: float = 0.55,
     min_center_distance_px: float = 0.0,
+    protect_near_ball_px: float = 0.0,
 ) -> list[Detection]:
     grouped: dict[int, list[tuple[int, Detection]]] = defaultdict(list)
     passthrough: list[tuple[int, Detection]] = []
+    balls_by_frame: dict[int, list[Detection]] = defaultdict(list)
     for index, det in enumerate(detections):
         if det.class_name in ROBOT_CLASSES:
             grouped[det.frame_index].append((index, det))
         else:
             passthrough.append((index, det))
+            if det.class_name in BALL_CLASSES:
+                balls_by_frame[det.frame_index].append(det)
 
     max_area = _max_area_from_ratio(
         frame_width=frame_width,
@@ -38,9 +42,11 @@ def filter_robot_detections(
     kept = list(passthrough)
     for frame_index in sorted(grouped):
         selected: list[tuple[int, Detection]] = []
+        ball = _best_ball(balls_by_frame.get(frame_index, []))
         candidates = sorted(
             grouped[frame_index],
             key=lambda item: (
+                not _near_ball(item[1], ball, protect_near_ball_px),
                 -float(item[1].score),
                 -_box_area(item[1].box),
                 item[0],
@@ -65,6 +71,19 @@ def filter_robot_detections(
                 break
         kept.extend(selected)
     return [det for _, det in sorted(kept, key=lambda item: item[0])]
+
+
+def _best_ball(detections: list[Detection]) -> Detection | None:
+    return max(detections, key=lambda det: det.score, default=None)
+
+
+def _near_ball(det: Detection, ball: Detection | None, threshold_px: float) -> bool:
+    if ball is None or threshold_px <= 0:
+        return False
+    return (
+        hypot(det.centroid[0] - ball.centroid[0], det.centroid[1] - ball.centroid[1])
+        <= threshold_px
+    )
 
 
 def _max_area_from_ratio(

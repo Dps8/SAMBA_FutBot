@@ -616,6 +616,7 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--robot-filter-containment-threshold", type=float, default=None)
     top_camera.add_argument("--robot-filter-iou-threshold", type=float, default=None)
     top_camera.add_argument("--robot-filter-min-center-distance-px", type=float, default=None)
+    top_camera.add_argument("--robot-filter-protect-near-ball-px", type=float, default=None)
     top_camera.add_argument("--refine-max-jump-px", type=float, default=35.0)
     top_camera.add_argument("--refine-preferred-area", type=float, default=680.0)
     top_camera.add_argument("--refine-score-weight", type=float, default=2.0)
@@ -2203,6 +2204,11 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             min_center_distance_px=_resolve_optional_float(
                 args.robot_filter_min_center_distance_px,
                 robot_filter_config.get("min_center_distance_px"),
+                default=0.0,
+            ),
+            protect_near_ball_px=_resolve_optional_float(
+                args.robot_filter_protect_near_ball_px,
+                robot_filter_config.get("protect_near_ball_px"),
                 default=0.0,
             ),
         )

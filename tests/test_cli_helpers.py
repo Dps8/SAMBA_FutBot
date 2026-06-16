@@ -128,6 +128,8 @@ class CliHelpersTest(unittest.TestCase):
                 "0.5",
                 "--robot-filter-min-center-distance-px",
                 "30",
+                "--robot-filter-protect-near-ball-px",
+                "180",
             ]
         )
 
@@ -138,6 +140,7 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.robot_filter_containment_threshold, 0.8)
         self.assertEqual(args.robot_filter_iou_threshold, 0.5)
         self.assertEqual(args.robot_filter_min_center_distance_px, 30)
+        self.assertEqual(args.robot_filter_protect_near_ball_px, 180)
 
     def test_process_top_camera_can_disable_qa(self):
         args = build_parser().parse_args(
