@@ -16,9 +16,11 @@ usa una estrategia hibrida:
    encuentre en el propio video.
 6. Se descartan manchas de color dentro de robots o fuera de contexto.
 7. Se fusionan candidatos de SAM 3 y color.
-8. Se refina la trayectoria de la pelota con consistencia temporal.
-9. Se asignan IDs de tracking y equipo por color dominante del robot.
-10. Se calculan metricas, posesion por equipo, eventos, homografia, reportes y QA.
+8. Se filtran robots duplicados por puntaje, tamano, IoU, contencion y
+   distancia entre centros.
+9. Se refina la trayectoria de la pelota con consistencia temporal.
+10. Se asignan IDs de tracking y equipo por color dominante del robot.
+11. Se calculan metricas, posesion por equipo, eventos, homografia, reportes y QA.
 
 ## Estado Actual
 
@@ -44,7 +46,6 @@ data/
 
 docs/
   RETO.md                             Resumen local del reto.
-  PROFESSIONAL_STRATEGY.md            Estrategia tecnica para categoria profesional.
   RESULTS.md                          Resultados parciales y observaciones.
   TECHNICAL_WALKTHROUGH.md            Explicacion tecnica extendida del repo.
 
@@ -141,7 +142,17 @@ Puntos clave:
   pipeline conserva como maximo una porteria azul y una amarilla por frame.
 - `goal_detection.infer_missing_opposite`: si en un frame hay campo y solo se
   detecta una porteria de color, crea la porteria opuesta por simetria respecto
-  al eje central del campo y la marca con `source: goal_geometry`.
+  al eje central del campo y la marca con `source: goal_geometry`. Esta apagado
+  por defecto porque puede crear una porteria falsa junto a la porteria real si
+  la geometria de campo no esta limpia.
+- `robot_filter.enabled`: activa el filtro conservador para camara superior.
+  Reduce cajas repetidas de robots usando varios criterios combinados: area
+  minima, area maxima relativa al frame, IoU, contencion, distancia minima entre
+  centros y maximo por frame. El default actual conserva hasta 2 robots por
+  frame para los clips revisados del reto.
+- En los renders, los colores se asignan por objeto antes que por equipo:
+  pelota naranja, robots rojo/blanco y porterias con su color real. Las
+  porterias inferidas por geometria no se dibujan en el video demo.
 - `analysis.possession_radius_px`: distancia robot-pelota para contar posesion.
 - `analysis.in_play_field_margin_px`: margen para decidir si la pelota esta en juego.
 - `analysis.ball_border_margin_px`: filtro contra falsos positivos en bordes.
@@ -149,6 +160,23 @@ Puntos clave:
   `ball_tracking`, `metric_speed_trajectory`, `team_possession`,
   `goal_scoring` y `shot_pressure`. Esto separa lo que ya se puede defender ante
   jurado de lo que todavia debe revisarse visualmente.
+- Un evento `goal_candidate` mantiene `goal_scoring` en revision. El claim solo
+  pasa a listo cuando existe evidencia emitida como `goal_confirmed`; el
+  marcador mostrado antes de eso siempre es candidato.
+- `analysis.goal_confirmation` valida temporalmente el gol: descarta porterias
+  inferidas por geometria, exige una pelota que venga desde fuera, movimiento
+  hacia la porteria y permanencia dentro durante varios frames. Sus umbrales se
+  pueden ajustar en `config/default.yml`.
+
+Para validar eventos existentes sin repetir SAM3:
+
+```powershell
+python -m samba_futbot.cli validate-goals `
+  --tracks "outputs\tracks\clip-tracks.jsonl" `
+  --events "outputs\events\clip-events.json" `
+  --out "outputs\events\clip-validated-events.json" `
+  --config config/default.yml
+```
 
 Plantilla de homografia: `config/top_camera_homography_template.yml`.
 
@@ -234,13 +262,189 @@ python -m samba_futbot.cli merge-frame-datasets `
 
 python -m samba_futbot.cli export-coco `
   --manifest "outputs\datasets\top_camera_merged\manifest.json" `
-  --out-dir "outputs\datasets\top_camera_merged_coco"
+  --out-dir "outputs\datasets\top_camera_merged_coco" `
+  --image-root "outputs\datasets\top_camera_merged"
 ```
 
 `merge-frame-datasets --split-strategy by-source-balanced` mantiene cada video
 en un solo split, pero balancea fuentes completas entre `train` y `val` cuando
 hay pocos clips. Es la opcion recomendada para preparar pseudo-etiquetas
 auditables y fine-tuning sin introducir detectores externos no permitidos.
+Cuando el manifest conserva `mask_path` y `mask_index`, `export-coco` agrega
+segmentaciones RLE COCO y un bloque de auditoria con mascaras referenciadas,
+exportadas y fallidas. Las cajas se mantienen si una mascara individual no se
+puede leer.
+
+Crear un subconjunto determinista centrado en pelota para experimentos de
+balance:
+
+```bash
+PYTHONPATH=src python -m samba_futbot.cli balance-coco \
+  --annotations "/data/coco/annotations/train.json" \
+  --out "/data/coco/annotations/train-ball-balanced.json" \
+  --focus-classes ball \
+  --negative-ratio 1.0 \
+  --seed 123
+```
+
+`--focus-only` elimina las otras categorias y crea un dataset especialista.
+Debe usarse solo como experimento: una imagen sin anotacion de pelota no es un
+negativo confiable cuando las etiquetas son pseudo-etiquetas. El JSON registra
+esta limitacion como `negative_semantics`; para resultados finales, los
+negativos y mascaras de pelota deben revisarse manualmente.
+
+Preparar una configuracion de adaptacion SAM3 desde el YAML oficial instalado:
+
+```bash
+PYTHONPATH=src python -m samba_futbot.cli prepare-sam3-finetune \
+  --template "/opt/sam3/sam3/train/configs/roboflow_v100/roboflow_v100_full_ft_100_images.yaml" \
+  --out "/opt/sam3/sam3/train/configs/samba_futbot/robots_ball.yaml" \
+  --data-root "/data/top_camera_merged" \
+  --train-json "/data/top_camera_merged_coco/annotations/train.json" \
+  --val-json "/data/top_camera_merged_coco/annotations/val.json" \
+  --experiment-dir "/runs/samba_futbot/robots_ball" \
+  --bpe-path "/opt/sam3/sam3/assets/bpe_simple_vocab_16e6.txt.gz" \
+  --epochs 3 \
+  --train-limit 64 \
+  --val-limit 64 \
+  --resolution 1008
+```
+
+El generador activa segmentacion, perdidas mask/Dice, decodificacion RLE en
+train/val, prompts por categoria y adaptacion de las cabezas de segmentacion y
+scoring. El backbone queda congelado porque full fine-tuning de 840 M
+parametros no cabe de forma estable en una GPU de 16 GB.
+
+Instalar primero las dependencias oficiales de entrenamiento dentro del entorno
+que contiene SAM3:
+
+```bash
+cd /opt/sam3
+python -m pip install -e ".[train]"
+```
+
+Ejecutar con el lanzador compatible con autograd:
+
+```bash
+PYTHONPATH="src:/opt/sam3" python scripts/run_sam3_finetune.py \
+  -c configs/samba_futbot/robots_ball.yaml \
+  --use-cluster 0 \
+  --num-gpus 1
+```
+
+Los checkpoints, configuraciones resueltas, logs, TensorBoard y predicciones
+COCO quedan dentro de `--experiment-dir`. Ver `docs/SAM3_FINETUNING.md` para
+el contrato de evaluacion antes de promover un checkpoint.
+
+Comparar el modelo base y el checkpoint adaptado sobre exactamente las imagenes
+presentes en ambos archivos de predicciones:
+
+```bash
+PYTHONPATH=src python -m samba_futbot.cli compare-sam3-finetune \
+  --ground-truth "/data/top_camera_merged_coco/annotations/val.json" \
+  --baseline "/runs/samba_futbot/baseline/dumps/coco_predictions_segm.json" \
+  --candidate "/runs/samba_futbot/robots_ball/dumps/coco_predictions_segm.json" \
+  --out "/runs/samba_futbot/comparison/comparison.json" \
+  --report-out "/runs/samba_futbot/comparison/comparison.md"
+```
+
+La comparacion recalcula COCO AP/AR global y por clase. Restringe el ground
+truth a los IDs realmente inferidos, evitando que un `val-limit` reduzca
+artificialmente las metricas por evaluar imagenes que no tuvieron prediccion.
+
+Antes de entrenar o adaptar, auditar el manifest:
+
+```powershell
+python -m samba_futbot.cli dataset-quality `
+  --manifest "outputs\datasets\top_camera_merged\manifest.json" `
+  --out "outputs\datasets\top_camera_merged\quality.json" `
+  --report-out "outputs\datasets\top_camera_merged\quality.md" `
+  --low-score-threshold 0.60
+```
+
+Ese paso marca cajas invalidas, detecciones de baja confianza, frames sin
+detecciones, rutas duplicadas, repeticiones del mismo `video + frame_index` y
+videos compartidos entre splits. Esto evita fuga temporal antes de cualquier
+adaptacion compatible con SAM.
+
+Crear el manifest curado que se usara para adaptacion:
+
+```powershell
+python -m samba_futbot.cli curate-dataset `
+  --manifest "outputs\datasets\top_camera_merged\manifest.json" `
+  --out "outputs\datasets\top_camera_merged\curated-manifest.json" `
+  --report-out "outputs\datasets\top_camera_merged\curation-report.json" `
+  --classes "ball,robots,goal_blue,goal_yellow" `
+  --min-score 0.60 `
+  --deduplicate-source-frames
+```
+
+La deduplicacion conserva, para cada video y frame, la variante con mayor
+cantidad de cajas validas y mejor evidencia de confianza. El reporte registra
+que imagen se conservo y cuales se descartaron, de modo que la reduccion del
+dataset queda auditable.
+
+Preparar un paquete de revision humana de pelota:
+
+```bash
+PYTHONPATH=src python -m samba_futbot.cli select-ball-review \
+  --manifest "outputs/review/2026-06-15/mask_training_v2/merged_mask_manifest.json" \
+  --out "outputs/review/2026-06-15/ball_review/ball-review-v2-dense.json" \
+  --report-out "outputs/review/2026-06-15/ball_review/ball-review-v2-dense-report.json" \
+  --positive-frames 40 \
+  --negative-frames 40 \
+  --source-group-mode original-video \
+  --min-frame-gap 2
+```
+
+El comando separa frames con pelota detectada (`verify_mask`) y frames sin
+pseudo-etiqueta de pelota (`verify_absence`). Los segundos son negativos
+candidatos, no negativos reales: deben revisarse manualmente antes de usarse
+como ausencia confirmada. `original-video` agrupa clips como
+`IMG_9933_f000000_10s` y `IMG_9933_f008995_10s` bajo la misma grabacion
+original para reducir fuga temporal.
+
+Auditar y exportar esa revision despues de editarla:
+
+```bash
+PYTHONPATH=src python -m samba_futbot.cli audit-ball-review \
+  --review "outputs/review/2026-06-15/ball_review/ball-review-v2-dense.json" \
+  --out "outputs/review/2026-06-15/ball_review/ball-review-v2-dense-audit.json" \
+  --report-out "outputs/review/2026-06-15/ball_review/ball-review-v2-dense-audit.md"
+
+PYTHONPATH=src python -m samba_futbot.cli export-reviewed-ball \
+  --review "outputs/review/2026-06-15/ball_review/ball-review-v2-dense.json" \
+  --out "outputs/review/2026-06-15/ball_review/reviewed-ball-manifest.json" \
+  --report-out "outputs/review/2026-06-15/ball_review/reviewed-ball-report.json" \
+  --split-strategy by-source-balanced \
+  --train-ratio 0.8 \
+  --val-ratio 0.1
+```
+
+`export-reviewed-ball` falla por defecto si queda cualquier frame pendiente.
+Los positivos deben tener anotaciones humanas en `annotations`; los negativos
+solo entran al manifest si `ball_absent_verified` es `true`. El split
+`by-source-balanced` mantiene todos los frames de una misma grabacion original
+en train, val o test, sin mezclarla entre particiones. El resumen separa
+`mask_ready_annotations` de `bbox_only_annotations`: las segundas sirven para
+COCO bbox, pero no bastan para un fine-tuning de segmentacion SAM3.
+
+Congelar un holdout para anotacion humana independiente:
+
+```powershell
+python -m samba_futbot.cli select-holdout `
+  --manifest "outputs\datasets\top_camera_merged\curated-manifest.json" `
+  --out "outputs\datasets\top_camera_merged\human-holdout.json" `
+  --report-out "outputs\datasets\top_camera_merged\human-holdout-report.json" `
+  --max-frames 24 `
+  --preferred-split val `
+  --seed 2026
+```
+
+La plantilla no copia detecciones ni cajas pseudo-etiquetadas. Solo conserva
+las rutas de imagen, el estado `pending` y clases esperadas como metadato de
+estratificacion. El reporte incluye una huella SHA-256 para repetir exactamente
+la misma seleccion al comparar modelos.
 
 Indexar Drive:
 
@@ -403,6 +607,25 @@ python -m samba_futbot.cli field-analysis `
 corrida antigua sin `team`: recalcula `blue`/`yellow` desde la imagen antes de
 proyectar robots al campo.
 
+Para reasignar y auditar equipos sin repetir SAM3:
+
+```powershell
+python -m samba_futbot.cli assign-teams `
+  --video "data\raw\video.mov" `
+  --tracks "outputs\tracks\clip-tracks.jsonl" `
+  --out "outputs\tracks\clip-tracks-with-teams.jsonl" `
+  --config config\default.yml
+
+python -m samba_futbot.cli team-quality `
+  --tracks "outputs\tracks\clip-tracks-with-teams.jsonl" `
+  --out "outputs\qa\clip-team-quality.json" `
+  --report-out "outputs\qa\clip-team-quality.md"
+```
+
+`team-quality` mide cobertura, cambios de equipo dentro del mismo track,
+tracks ambiguos y colapso hacia un solo color. Esta auditoria debe aprobarse
+antes de defender posesion o control territorial por equipo.
+
 Validar una calibracion antes de confiar en distancias y velocidades metricas:
 
 ```powershell
@@ -412,8 +635,11 @@ python -m samba_futbot.cli calibration-check `
   --out "outputs\field_analysis\calibration-quality.json"
 ```
 
-El resultado incluye `status`, error de reproyeccion, area del poligono de campo
-en pixeles y puntos fuera del frame.
+El resultado incluye `status`, error de reproyeccion, area y cobertura del
+poligono, orden/convexidad de esquinas, relacion de aristas, angulos comprimidos
+y puntos fuera del frame. Estas comprobaciones detectan calibraciones muy
+sesgadas aunque los cuatro puntos usados para ajustar la homografia tengan
+error de reproyeccion cercano a cero.
 
 ## Comandos Individuales
 
@@ -623,7 +849,40 @@ python -m samba_futbot.cli showcase-index `
   --limit 12
 ```
 
+Para comparar una corrida baseline contra una variante o modelo adaptado:
+
+```powershell
+python -m samba_futbot.cli compare-qa `
+  --baseline "outputs\qa\baseline-qa.json" `
+  --candidate "outputs\qa\candidate-qa.json" `
+  --out "outputs\qa\baseline-vs-candidate.json" `
+  --report-out "outputs\qa\baseline-vs-candidate.md"
+```
+
+El comparador evalua score, coberturas, saltos de pelota, incertidumbre de
+equipos, homografia y claims ganados/perdidos. Debe usarse para decidir si una
+variante de prompts o un fine-tuning realmente mejora al baseline.
+
+Para crear un reporte Markdown final desde un batch procesado:
+
+```powershell
+python -m samba_futbot.cli submission-report `
+  --batch-root "outputs\review\2026-06-08\top_camera_batch" `
+  --training-root "outputs\review\2026-06-08\training_datasets" `
+  --out "outputs\review\2026-06-08\SUBMISSION_EVIDENCE.md" `
+  --top 4
+```
+
+Ese reporte consolida candidatos de showcase, rutas de videos narrativo y
+analitico, QA, resumen de batch, capa tactica con distancias/posesion y estado
+del dataset preparado para adaptacion compatible con SAM.
+
 ## Resultados Generados
+
+Estado de avance y estimado de cierre:
+
+- `docs/PROJECT_STATUS.md`
+- `docs/REMOTE_TEST_CHECKLIST.md`
 
 Cada corrida puede producir:
 
@@ -648,11 +907,92 @@ Cada corrida puede producir:
   de pelota/campo, saltos, reglas e incertidumbre de equipos.
 - `qa-index.json` / `qa-index.md`: ranking de corridas QA encontradas bajo una
   carpeta de resultados, incluyendo incertidumbre de equipos.
+- `quality.json` / `quality.md`: auditoria de dataset exportado antes de
+  adaptar/entrenar, con cajas invalidas, scores bajos, duplicados por
+  video/frame y ejemplos a revisar.
+- `curated-manifest.json` / `curation-report.json`: dataset filtrado y
+  deduplicado junto con la trazabilidad de cada descarte.
+- `human-holdout.json` / `human-holdout-report.json`: plantilla independiente
+  para anotacion humana y huella reproducible de seleccion.
+- COCO `annotations/*.json`: cajas y, cuando existen, mascaras RLE auditadas.
 - `report.md`: reporte integral de corrida con metricas, eventos, homografia,
   QA, demo y mapa tactico cuando esos artefactos existen.
 - `manifest.json`: timestamp UTC, comando, argumentos, runtime, huella Git
   local, SHA256 del codigo/config, rutas de artefactos y resumenes clave de la
   corrida.
+
+Para mejorar legibilidad de videos ya procesados sin repetir SAM3, `render-demo`
+puede reusar tracks/eventos y dibujar overlays semitransparentes:
+
+```powershell
+python -m samba_futbot.cli render-demo `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --tracks "outputs\review\2026-05-27\18abril_top_camera\runs\tracks\IMG_9938_f001799_10s-top-fusion-hsv-v2-refined-tracks.jsonl" `
+  --events "outputs\review\2026-06-08\top_camera_batch\events\IMG_9938_f001799_10s-top-fusion-hsv-v2-refined-events.json" `
+  --out "outputs\review\2026-06-15\visual_refresh\videos\IMG_9938_f001799_10s-readable-analysis-mask-demo.mp4" `
+  --style analysis `
+  --analysis-freeze `
+  --freeze-seconds 3.5 `
+  --mask-overlay `
+  --mask-alpha 0.38 `
+  --label-scale 0.9 `
+  --box-thickness 4 `
+  --visual-hold-frames 18
+```
+
+Cuando una deteccion trae `mask_path` y `mask_index`, el overlay usa la mascara
+real; si no existe una mascara valida, rellena la caja con el color de la clase.
+`visual-hold-frames` solo conserva tracks durante perdidas breves: no inventa
+robots cuando el archivo de tracks ya no tiene detecciones durante muchos
+segundos.
+
+Cuando SAM3 pierde robots en vista superior, se puede crear un preview de
+recuperacion por color/forma sin usar detectores externos:
+
+```powershell
+python -m samba_futbot.cli detect-dark-robots `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --out "outputs\review\2026-06-15\robot_recovery\IMG_9938_f001799_10s-dark-robots-lower-half-mergedparts.jsonl" `
+  --field-detections "outputs\review\2026-05-27\18abril_top_camera\runs\detections\IMG_9938_f001799_10s-field-robots-sweep-clipped\detections.jsonl" `
+  --min-area 800 `
+  --max-area 18000 `
+  --min-circularity 0.30 `
+  --hsv-upper "179,255,125" `
+  --min-center-y-ratio 0.38 `
+  --merge-distance-px 42 `
+  --max-per-frame 4
+```
+
+Este paso es un post-procesamiento auditable para recuperar blobs oscuros de
+robots sobre el campo. Debe revisarse visualmente antes de defender posesion o
+conteo de robots, porque sombras y soportes de porteria pueden parecer robots
+si no se restringe la zona o la forma.
+
+Tambien puede activarse dentro del pipeline de camara superior:
+
+```powershell
+python -m samba_futbot.cli process-top-camera `
+  --config config/default.yml `
+  --video "outputs\review\2026-05-27\18abril_top_camera\clips\IMG_9938_f001799_10s.mp4" `
+  --results-dir "outputs\review\2026-06-15\final_top_camera_robot_recovery" `
+  --suffix "top-final-robot-recovery-v1" `
+  --robot-color-recovery `
+  --robot-recovery-min-area 800 `
+  --robot-recovery-min-circularity 0.30 `
+  --robot-recovery-hsv-upper "179,255,125" `
+  --robot-recovery-min-center-y-ratio 0.38 `
+  --robot-recovery-merge-distance-px 42 `
+  --robot-recovery-max-per-frame 4 `
+  --render-analysis `
+  --analysis-freeze `
+  --mask-overlay `
+  --label-scale 0.82 `
+  --box-thickness 4
+```
+
+La opcion integrada escribe `*-dark-robots.jsonl` junto a las otras detecciones
+y lo incluye antes de tracking/QA. Mantenerla apagada por defecto permite
+comparar baseline SAM3 contra la variante recuperada.
 
 ## Pruebas
 
@@ -672,8 +1012,9 @@ pytest
 ## Documentacion Extendida
 
 - `docs/TECHNICAL_WALKTHROUGH.md`: explicacion larga del codigo y despliegue.
-- `docs/PROFESSIONAL_STRATEGY.md`: estrategia de innovacion para la categoria.
 - `docs/RESULTS.md`: resultados parciales procesados.
+- `docs/SAM3_FINETUNING.md`: contrato de datos, ejecucion y evaluacion para
+  adaptar SAM3 con el repositorio oficial.
 
 ## Licencia
 

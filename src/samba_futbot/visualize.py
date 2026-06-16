@@ -14,16 +14,17 @@ from .video import require_cv2
 
 COLORS = {
     "field": (60, 170, 60),
-    "robots": (255, 180, 50),
-    "robot": (255, 180, 50),
-    "ball": (40, 140, 255),
+    "robots": (230, 60, 60),
+    "robot": (230, 60, 60),
+    "ball": (255, 130, 20),
     "goal_blue": (40, 90, 255),
     "goal_yellow": (255, 220, 50),
     "robot_allied": (255, 80, 80),
-    "robot_rival": (80, 180, 255),
+    "robot_rival": (245, 245, 245),
 }
 
 DEFAULT_FREEZE_EVENT_TYPES = {
+    "goal_confirmed",
     "goal_candidate",
     "shot",
     "pass",
@@ -37,6 +38,7 @@ DEFAULT_FREEZE_EVENT_TYPES = {
 }
 
 FREEZE_EVENT_PRIORITY = {
+    "goal_confirmed": 120,
     "goal_candidate": 100,
     "shot_pressure": 90,
     "shot": 80,
@@ -50,11 +52,25 @@ FREEZE_EVENT_PRIORITY = {
 }
 
 
-def class_color(class_name: str, team: str | None = None) -> tuple[int, int, int]:
-    if team == "blue":
-        return (60, 110, 255)
-    if team == "yellow":
-        return (255, 220, 50)
+def class_color(
+    class_name: str,
+    team: str | None = None,
+    track_id: int | None = None,
+) -> tuple[int, int, int]:
+    if class_name in BALL_CLASSES:
+        return COLORS["ball"]
+    if class_name == "goal_blue":
+        return COLORS["goal_blue"]
+    if class_name == "goal_yellow":
+        return COLORS["goal_yellow"]
+    if class_name in ROBOT_CLASSES:
+        if team in {"rival", "white"}:
+            return COLORS["robot_rival"]
+        if team in {"allied", "red"}:
+            return COLORS["robot_allied"]
+        if track_id is not None and int(track_id) % 2 == 0:
+            return COLORS["robot_rival"]
+        return COLORS["robot_allied"]
     if team == "allied":
         return (255, 80, 80)
     if team == "rival":
@@ -77,6 +93,11 @@ def render_demo_video(
     freeze_cooldown_frames: int = 60,
     freeze_max_events: int = 20,
     freeze_event_types: str | list[str] | tuple[str, ...] | set[str] | None = None,
+    mask_overlay: bool = True,
+    mask_alpha: float = 0.35,
+    label_scale: float = 0.75,
+    box_thickness: int = 3,
+    visual_hold_frames: int = 12,
 ) -> Path:
     if style not in {"narrative", "analysis"}:
         raise ValueError("style must be 'narrative' or 'analysis'.")
@@ -114,6 +135,8 @@ def render_demo_video(
     previous_ball: Detection | None = None
     freeze_count = 0
     last_freeze_frame = -10_000
+    mask_base_dir = Path(tracks_path).resolve().parent
+    recent_detections: dict[tuple[str, int], tuple[Detection, int]] = {}
     while True:
         ok, frame = cap.read()
         if not ok:
@@ -125,12 +148,43 @@ def render_demo_video(
         frame_dets = by_frame.get(frame_index, [])
         ball = _best_ball(frame_dets)
         distances = robot_ball_distances(frame_dets, ball)
+        current_keys: set[tuple[str, int]] = set()
+        label_boxes: list[tuple[int, int, int, int]] = []
         for det in frame_dets:
             if _should_draw_detection(det, style=style):
-                _draw_detection(cv2, annotated, det, trails, style=style)
+                key = _visual_track_key(det)
+                if key is not None:
+                    current_keys.add(key)
+                _draw_detection(
+                    cv2,
+                    annotated,
+                    det,
+                    trails,
+                    style=style,
+                    mask_base_dir=mask_base_dir,
+                    mask_overlay=mask_overlay,
+                    mask_alpha=mask_alpha,
+                    label_scale=label_scale,
+                    box_thickness=box_thickness,
+                    label_boxes=label_boxes,
+                )
+        _draw_held_detections(
+            cv2,
+            annotated,
+            recent_detections,
+            current_keys=current_keys,
+            frame_index=frame_index,
+            hold_frames=visual_hold_frames,
+            label_scale=label_scale,
+            box_thickness=box_thickness,
+        )
+        for det in frame_dets:
+            key = _visual_track_key(det)
+            if key is not None and _should_overlay_detection(det):
+                recent_detections[key] = (det, frame_index)
         if style == "analysis":
-            _draw_robot_ball_distances(cv2, annotated, distances)
-            _draw_ball_analysis(cv2, annotated, ball, previous_ball, width)
+            _draw_robot_ball_distances(cv2, annotated, distances, label_boxes=label_boxes)
+            _draw_ball_analysis(cv2, annotated, ball, previous_ball, width, label_boxes=label_boxes)
         _draw_header(cv2, frame, "Original")
         event = _recent_event(events_by_frame, frame_index)
         _draw_header(
@@ -184,11 +238,30 @@ def render_demo_video(
     return output
 
 
-def _draw_detection(cv2, frame: np.ndarray, det: Detection, trails, *, style: str) -> None:
+def _draw_detection(
+    cv2,
+    frame: np.ndarray,
+    det: Detection,
+    trails,
+    *,
+    style: str,
+    mask_base_dir: Path | None = None,
+    mask_overlay: bool = True,
+    mask_alpha: float = 0.35,
+    label_scale: float = 0.75,
+    box_thickness: int = 3,
+    label_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> None:
     x1, y1, x2, y2 = [int(round(v)) for v in det.box]
-    color_rgb = class_color(det.class_name, det.team)
+    color_rgb = class_color(det.class_name, det.team, det.track_id)
     color_bgr = tuple(reversed(color_rgb))
-    thickness = 2 if style == "analysis" else 1
+    if mask_overlay and _should_overlay_detection(det):
+        mask = _load_detection_mask(det, mask_base_dir=mask_base_dir, frame_shape=frame.shape)
+        if mask is not None:
+            _blend_mask(frame, mask, color_bgr, alpha=mask_alpha)
+        else:
+            _blend_box(frame, (x1, y1, x2, y2), color_bgr, alpha=min(mask_alpha, 0.28))
+    thickness = max(1, int(box_thickness + (1 if style == "analysis" else 0)))
     cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, thickness)
 
     cx, cy = [int(round(v)) for v in det.centroid]
@@ -199,8 +272,241 @@ def _draw_detection(cv2, frame: np.ndarray, det: Detection, trails, *, style: st
             for a, b in zip(pts, pts[1:]):
                 cv2.line(frame, a, b, color_bgr, 2)
 
-    label = _detection_label(det, style=style)
-    cv2.putText(frame, label, (x1, max(20, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_bgr, 2)
+    if det.class_name != "field":
+        label = _detection_label(det, style=style)
+        _draw_label(
+            cv2,
+            frame,
+            label,
+            (x1, max(24, y1 - 8)),
+            color_bgr,
+            scale=label_scale,
+            anchor_box=(x1, y1, x2, y2),
+            occupied_boxes=label_boxes,
+        )
+
+
+def _visual_track_key(det: Detection) -> tuple[str, int] | None:
+    if det.track_id is None:
+        return None
+    if not _should_overlay_detection(det):
+        return None
+    return (det.class_name, int(det.track_id))
+
+
+def _draw_held_detections(
+    cv2,
+    frame: np.ndarray,
+    recent_detections: dict[tuple[str, int], tuple[Detection, int]],
+    *,
+    current_keys: set[tuple[str, int]],
+    frame_index: int,
+    hold_frames: int,
+    label_scale: float,
+    box_thickness: int,
+) -> None:
+    if hold_frames <= 0:
+        return
+    expired = []
+    for key, (det, last_seen) in recent_detections.items():
+        age = frame_index - last_seen
+        if age > hold_frames:
+            expired.append(key)
+            continue
+        if key in current_keys or age <= 0:
+            continue
+        x1, y1, x2, y2 = [int(round(v)) for v in det.box]
+        color_bgr = tuple(reversed(class_color(det.class_name, det.team, det.track_id)))
+        alpha = max(0.10, 0.24 * (1.0 - age / max(1, hold_frames + 1)))
+        _blend_box(frame, (x1, y1, x2, y2), color_bgr, alpha=alpha)
+        cv2.rectangle(
+            frame,
+            (x1, y1),
+            (x2, y2),
+            color_bgr,
+            max(1, int(box_thickness) - 1),
+            lineType=cv2.LINE_AA,
+        )
+    for key in expired:
+        recent_detections.pop(key, None)
+
+
+def _should_overlay_detection(det: Detection) -> bool:
+    if _is_inferred_goal(det):
+        return False
+    return det.class_name in BALL_CLASSES or det.class_name in ROBOT_CLASSES or det.class_name.startswith("goal_")
+
+
+def _blend_box(
+    frame: np.ndarray,
+    box: tuple[int, int, int, int],
+    color_bgr: tuple[int, int, int],
+    *,
+    alpha: float,
+) -> None:
+    height, width = frame.shape[:2]
+    x1, y1, x2, y2 = box
+    x1 = max(0, min(width - 1, x1))
+    x2 = max(0, min(width - 1, x2))
+    y1 = max(0, min(height - 1, y1))
+    y2 = max(0, min(height - 1, y2))
+    if x2 <= x1 or y2 <= y1:
+        return
+    roi = frame[y1:y2, x1:x2]
+    color = np.asarray(color_bgr, dtype=np.float32)
+    roi[:] = np.clip(roi.astype(np.float32) * (1.0 - alpha) + color * alpha, 0, 255).astype(np.uint8)
+
+
+def _blend_mask(
+    frame: np.ndarray,
+    mask: np.ndarray,
+    color_bgr: tuple[int, int, int],
+    *,
+    alpha: float,
+) -> None:
+    mask_bool = np.asarray(mask).astype(bool)
+    if mask_bool.shape != frame.shape[:2] or not np.any(mask_bool):
+        return
+    color = np.asarray(color_bgr, dtype=np.float32)
+    pixels = frame[mask_bool].astype(np.float32)
+    frame[mask_bool] = np.clip(pixels * (1.0 - alpha) + color * alpha, 0, 255).astype(np.uint8)
+
+
+def _load_detection_mask(
+    det: Detection,
+    *,
+    mask_base_dir: Path | None,
+    frame_shape: tuple[int, ...],
+) -> np.ndarray | None:
+    if not det.mask_path:
+        return None
+    mask_index = det.extra.get("mask_index") if isinstance(det.extra, dict) else None
+    if isinstance(mask_index, bool) or not isinstance(mask_index, int) or mask_index < 0:
+        return None
+    path = Path(det.mask_path)
+    candidates = [path]
+    if not path.is_absolute() and mask_base_dir is not None:
+        candidates.insert(0, mask_base_dir / path)
+    mask_path = next((candidate for candidate in candidates if candidate.exists()), None)
+    if mask_path is None or mask_path.suffix.lower() != ".npz":
+        return None
+    try:
+        with np.load(mask_path) as archive:
+            if "masks" not in archive.files:
+                return None
+            masks = archive["masks"]
+    except (OSError, ValueError):
+        return None
+    if masks.ndim == 2:
+        if mask_index != 0:
+            return None
+        mask = masks
+    elif masks.ndim >= 3:
+        if mask_index >= masks.shape[0]:
+            return None
+        mask = np.squeeze(masks[mask_index])
+    else:
+        return None
+    if mask.ndim != 2 or mask.shape != frame_shape[:2]:
+        return None
+    return np.asarray(mask != 0, dtype=np.uint8)
+
+
+def _draw_label(
+    cv2,
+    frame: np.ndarray,
+    label: str,
+    origin: tuple[int, int],
+    color_bgr: tuple[int, int, int],
+    *,
+    scale: float,
+    anchor_box: tuple[int, int, int, int] | None = None,
+    occupied_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> None:
+    thickness = max(2, int(round(scale * 2.0)))
+    (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+    x, y, rect = _choose_label_origin(
+        frame.shape,
+        origin,
+        text_w=text_w,
+        text_h=text_h,
+        baseline=baseline,
+        anchor_box=anchor_box,
+        occupied_boxes=occupied_boxes or [],
+    )
+    if occupied_boxes is not None:
+        occupied_boxes.append(rect)
+    cv2.rectangle(
+        frame,
+        (rect[0], rect[1]),
+        (rect[2], rect[3]),
+        (0, 0, 0),
+        -1,
+    )
+    cv2.putText(frame, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color_bgr, thickness)
+
+
+def _choose_label_origin(
+    frame_shape: tuple[int, ...],
+    preferred_origin: tuple[int, int],
+    *,
+    text_w: int,
+    text_h: int,
+    baseline: int,
+    anchor_box: tuple[int, int, int, int] | None = None,
+    occupied_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> tuple[int, int, tuple[int, int, int, int]]:
+    occupied_boxes = occupied_boxes or []
+    candidates = [preferred_origin]
+    if anchor_box is not None:
+        x1, y1, x2, y2 = anchor_box
+        candidates = [
+            (x1, y1 - 8),
+            (x1, y2 + text_h + baseline + 10),
+            (x2 - text_w, y1 - 8),
+            (x2 - text_w, y2 + text_h + baseline + 10),
+            (x2 + 8, y1 + text_h + 4),
+            (x1 - text_w - 8, y1 + text_h + 4),
+            (x1 + 4, y1 + text_h + 8),
+            preferred_origin,
+        ]
+    fallback: tuple[int, int, tuple[int, int, int, int]] | None = None
+    for candidate in candidates:
+        placed = _label_rect_for_origin(frame_shape, candidate, text_w, text_h, baseline)
+        if fallback is None:
+            fallback = placed
+        if not any(_boxes_overlap(placed[2], occupied) for occupied in occupied_boxes):
+            return placed
+    return fallback or _label_rect_for_origin(frame_shape, preferred_origin, text_w, text_h, baseline)
+
+
+def _label_rect_for_origin(
+    frame_shape: tuple[int, ...],
+    origin: tuple[int, int],
+    text_w: int,
+    text_h: int,
+    baseline: int,
+) -> tuple[int, int, tuple[int, int, int, int]]:
+    frame_h, frame_w = frame_shape[:2]
+    x, y = origin
+    x = max(2, min(frame_w - text_w - 8, x))
+    y = max(text_h + 6, min(frame_h - baseline - 5, y))
+    rect = (x - 3, y - text_h - 5, x + text_w + 5, y + baseline + 4)
+    return x, y, rect
+
+
+def _boxes_overlap(
+    a: tuple[int, int, int, int],
+    b: tuple[int, int, int, int],
+    *,
+    padding: int = 2,
+) -> bool:
+    return not (
+        a[2] + padding <= b[0]
+        or b[2] + padding <= a[0]
+        or a[3] + padding <= b[1]
+        or b[3] + padding <= a[1]
+    )
 
 
 def _detection_label(det: Detection, *, style: str) -> str:
@@ -215,9 +521,19 @@ def _detection_label(det: Detection, *, style: str) -> str:
 
 
 def _should_draw_detection(det: Detection, *, style: str) -> bool:
+    if _is_inferred_goal(det):
+        return False
     if style == "analysis":
         return True
     return det.class_name in BALL_CLASSES or det.class_name in ROBOT_CLASSES or det.class_name.startswith("goal_")
+
+
+def _is_inferred_goal(det: Detection) -> bool:
+    if not det.class_name.startswith("goal_"):
+        return False
+    if not isinstance(det.extra, dict):
+        return False
+    return det.extra.get("source") == "goal_geometry"
 
 
 def _draw_header(cv2, frame: np.ndarray, text: str) -> None:
@@ -339,8 +655,10 @@ def _parse_freeze_event_types(
 def _event_label(event: dict) -> str:
     event_type = str(event.get("event_type", "event"))
     metadata = event.get("metadata", {}) if isinstance(event.get("metadata", {}), dict) else {}
+    if event_type == "goal_confirmed":
+        return f"confirmed goal {metadata.get('scoring_team', 'unknown')}"
     if event_type == "goal_candidate":
-        return f"goal {metadata.get('scoring_team', 'unknown')}"
+        return f"goal candidate {metadata.get('scoring_team', 'unknown')}"
     if event_type == "shot":
         return f"shot {metadata.get('shooting_team', 'unknown')}"
     return event_type
@@ -420,11 +738,17 @@ def _distance_label(record: dict) -> str:
     return f"{robot_label} {float(record.get('distance_px', 0.0)):.0f}px"
 
 
-def _draw_robot_ball_distances(cv2, frame: np.ndarray, distances: list[dict]) -> None:
+def _draw_robot_ball_distances(
+    cv2,
+    frame: np.ndarray,
+    distances: list[dict],
+    *,
+    label_boxes: list[tuple[int, int, int, int]] | None = None,
+) -> None:
     for record in distances[:8]:
         robot = record["robot"]
         ball_det = record["ball"]
-        color_bgr = tuple(reversed(class_color(robot.class_name, robot.team)))
+        color_bgr = tuple(reversed(class_color(robot.class_name, robot.team, robot.track_id)))
         robot_center = tuple(int(round(v)) for v in robot.centroid)
         ball_center = tuple(int(round(v)) for v in ball_det.centroid)
         cv2.line(frame, robot_center, ball_center, color_bgr, 1)
@@ -432,14 +756,14 @@ def _draw_robot_ball_distances(cv2, frame: np.ndarray, distances: list[dict]) ->
             int((robot_center[0] + ball_center[0]) / 2),
             int((robot_center[1] + ball_center[1]) / 2),
         )
-        cv2.putText(
+        _draw_label(
+            cv2,
             frame,
             f"{record['distance_px']:.0f}px",
             midpoint,
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.42,
             color_bgr,
-            1,
+            scale=0.48,
+            occupied_boxes=label_boxes,
         )
 
 
@@ -502,6 +826,8 @@ def _draw_ball_analysis(
     ball: Detection | None,
     previous_ball: Detection | None,
     frame_width: int,
+    *,
+    label_boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> None:
     if ball is None:
         return
@@ -510,12 +836,13 @@ def _draw_ball_analysis(
     text = f"ball v={pressure['speed_px_frame']:.1f}px/f"
     if pressure["target_side"]:
         text += f" | goal {pressure['target_side']} p={pressure['probability']:.0%}"
-    cv2.putText(
+    _draw_label(
+        cv2,
         frame,
         text,
         (max(6, x + 8), max(52, y - 14)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.5,
         (255, 255, 255),
-        2,
+        scale=0.5,
+        anchor_box=tuple(int(round(v)) for v in ball.box),
+        occupied_boxes=label_boxes,
     )

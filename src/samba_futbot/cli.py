@@ -10,12 +10,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .ball_refinement import refine_ball_trajectory
+from .ball_review import audit_ball_review_file, export_reviewed_ball_manifest_file
 from .calibration import calibration_quality_report, render_calibration_frame, write_calibration_quality
 from .config import deep_get, load_config
 from .color_ball import detect_orange_ball
 from .color_goals import detect_colored_goals, enforce_goal_frame_constraints
+from .color_robots import detect_dark_robots
+from .comparison import (
+    compare_qa_files,
+    write_qa_comparison_json,
+    write_qa_comparison_markdown,
+)
 from .dataset import export_frame_dataset
 from .dataset import merge_frame_dataset_manifests
+from .dataset_curation import curate_dataset_manifest_file
+from .dataset_quality import analyze_dataset_quality_file, write_dataset_quality_markdown
 from .drive import (
     download_manifest_files,
     download_drive_file,
@@ -24,7 +33,7 @@ from .drive import (
     load_manifest,
     write_manifest,
 )
-from .events import detect_events, summarize_events
+from .events import confirm_goal_candidates, detect_events, summarize_events
 from .field_analysis import (
     analyze_field_tracks,
     load_field_calibration,
@@ -33,6 +42,9 @@ from .field_analysis import (
     write_field_zone_control_csv,
 )
 from .field_viz import render_field_map
+from .finetune_config import prepare_sam3_finetune_config
+from .finetune_evaluation import evaluate_and_compare_coco_files
+from .finetune_preflight import write_finetune_preflight
 from .game_state import (
     classify_frame_states,
     detect_external_events,
@@ -41,8 +53,10 @@ from .game_state import (
     play_mask_from_segments,
     playable_frames_from_game_state,
 )
+from .holdout import select_ball_review_set_file, select_human_holdout_file
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
+from .play_state import ROBOT_CLASSES
 from .pseudolabels import export_pseudolabel_candidates
 from .qa import (
     collect_quality_reports,
@@ -53,16 +67,21 @@ from .qa import (
     write_quality_markdown,
 )
 from .reporting import write_run_report
+from .robot_filter import filter_robot_detections
 from .sam3_adapter import run_sam3_video
+from .sam3_training_export import export_sam3_training
 from .showcase import (
     collect_showcase_candidates,
     write_showcase_json,
     write_showcase_markdown,
 )
 from .situations import analyze_situations
+from .submission import write_submission_report
 from .team import assign_robot_teams_from_video
+from .team_quality import analyze_team_quality_file, write_team_quality_markdown
 from .tracking import track_detections
-from .training_export import export_coco_detection
+from .training_export import export_balanced_coco_subset, export_coco_detection
+from .types import Event
 from .video import extract_video_clip, sample_frames, video_info
 from .visualize import render_demo_video
 from .windowing import (
@@ -218,7 +237,198 @@ def build_parser() -> argparse.ArgumentParser:
     )
     coco.add_argument("--manifest", required=True)
     coco.add_argument("--out-dir", required=True)
+    coco.add_argument("--image-root", default=None)
     coco.set_defaults(func=cmd_export_coco)
+
+    balanced_coco = sub.add_parser(
+        "balance-coco",
+        help="Crear subconjunto COCO de entrenamiento balanceado por clase objetivo.",
+    )
+    balanced_coco.add_argument("--annotations", required=True)
+    balanced_coco.add_argument("--out", required=True)
+    balanced_coco.add_argument("--focus-classes", default="ball")
+    balanced_coco.add_argument("--negative-ratio", type=float, default=1.0)
+    balanced_coco.add_argument("--max-positive-images", type=int, default=None)
+    balanced_coco.add_argument("--seed", type=int, default=123)
+    balanced_coco.add_argument(
+        "--focus-only",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    balanced_coco.set_defaults(func=cmd_balance_coco)
+
+    finetune_config = sub.add_parser(
+        "prepare-sam3-finetune",
+        help="Derivar un YAML de segmentacion desde la configuracion oficial de SAM3.",
+    )
+    finetune_config.add_argument("--template", required=True)
+    finetune_config.add_argument("--out", required=True)
+    finetune_config.add_argument("--data-root", required=True)
+    finetune_config.add_argument("--train-json", required=True)
+    finetune_config.add_argument("--val-json", required=True)
+    finetune_config.add_argument("--experiment-dir", required=True)
+    finetune_config.add_argument("--bpe-path", required=True)
+    finetune_config.add_argument("--epochs", type=int, default=1)
+    finetune_config.add_argument("--train-limit", type=int, default=8)
+    finetune_config.add_argument("--val-limit", type=int, default=8)
+    finetune_config.add_argument("--resolution", type=int, default=1008)
+    finetune_config.add_argument("--num-workers", type=int, default=0)
+    finetune_config.add_argument("--class-prompts", default=None)
+    finetune_config.add_argument("--mode", choices=["train", "val"], default="train")
+    finetune_config.set_defaults(func=cmd_prepare_sam3_finetune)
+
+    finetune_compare = sub.add_parser(
+        "compare-sam3-finetune",
+        help="Comparar predicciones COCO de SAM3 base y adaptado sobre el subconjunto exacto.",
+    )
+    finetune_compare.add_argument("--ground-truth", required=True)
+    finetune_compare.add_argument("--baseline", required=True)
+    finetune_compare.add_argument("--candidate", required=True)
+    finetune_compare.add_argument("--out", required=True)
+    finetune_compare.add_argument("--report-out", required=True)
+    finetune_compare.add_argument("--iou-type", choices=["segm", "bbox"], default="segm")
+    finetune_compare.set_defaults(func=cmd_compare_sam3_finetune)
+
+    sam3_training = sub.add_parser(
+        "export-sam3-training",
+        help="Exportar manifest al formato oficial imagen-frase de SAM3.",
+    )
+    sam3_training.add_argument("--manifest", required=True)
+    sam3_training.add_argument("--out-dir", required=True)
+    sam3_training.add_argument("--image-root", default=None)
+    sam3_training.add_argument("--class-prompts", default=None)
+    sam3_training.add_argument(
+        "--include-negatives",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    sam3_training.add_argument(
+        "--negative-classes",
+        default="ball,robots,goal_blue,goal_yellow",
+    )
+    sam3_training.add_argument("--max-negative-classes-per-image", type=int, default=1)
+    sam3_training.add_argument("--max-negative-pairs-per-class", type=int, default=100)
+    sam3_training.set_defaults(func=cmd_export_sam3_training)
+
+    preflight = sub.add_parser(
+        "finetune-preflight",
+        help="Validar entorno y datos antes de entrenar SAM3 oficial.",
+    )
+    preflight.add_argument("--sam3-root", required=True)
+    preflight.add_argument("--checkpoint", required=True)
+    preflight.add_argument("--train-json", required=True)
+    preflight.add_argument("--val-json", required=True)
+    preflight.add_argument("--train-images", required=True)
+    preflight.add_argument("--val-images", required=True)
+    preflight.add_argument("--out", required=True)
+    preflight.add_argument(
+        "--check-cuda",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    preflight.add_argument("--python-executable", default=sys.executable)
+    preflight.set_defaults(func=cmd_finetune_preflight)
+
+    dataset_quality = sub.add_parser(
+        "dataset-quality",
+        help="Auditar calidad de manifest de dataset antes de adaptacion/fine-tuning.",
+    )
+    dataset_quality.add_argument("--manifest", required=True)
+    dataset_quality.add_argument("--out", required=True)
+    dataset_quality.add_argument("--report-out", default=None)
+    dataset_quality.add_argument("--low-score-threshold", type=float, default=0.60)
+    dataset_quality.add_argument("--max-review-examples", type=int, default=25)
+    dataset_quality.set_defaults(func=cmd_dataset_quality)
+
+    curate_dataset = sub.add_parser(
+        "curate-dataset",
+        help="Filtrar y deduplicar un manifest antes de adaptacion/fine-tuning.",
+    )
+    curate_dataset.add_argument("--manifest", required=True)
+    curate_dataset.add_argument("--out", required=True)
+    curate_dataset.add_argument("--report-out", required=True)
+    curate_dataset.add_argument("--classes", default="robots,ball,goal_blue,goal_yellow")
+    curate_dataset.add_argument("--min-score", type=float, default=0.60)
+    curate_dataset.add_argument("--review-exclusions", default=None)
+    curate_dataset.add_argument(
+        "--drop-empty-frames",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    curate_dataset.add_argument(
+        "--deduplicate-source-frames",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    curate_dataset.set_defaults(func=cmd_curate_dataset)
+
+    holdout = sub.add_parser(
+        "select-holdout",
+        help="Seleccionar frames independientes para anotacion humana.",
+    )
+    holdout.add_argument("--manifest", required=True)
+    holdout.add_argument("--out", required=True)
+    holdout.add_argument("--report-out", required=True)
+    holdout.add_argument("--max-frames", type=int, default=24)
+    holdout.add_argument("--preferred-split", default="val")
+    holdout.add_argument("--seed", type=int, default=2026)
+    holdout.set_defaults(func=cmd_select_holdout)
+
+    ball_review = sub.add_parser(
+        "select-ball-review",
+        help="Seleccionar positivos y negativos candidatos para revisar pelota.",
+    )
+    ball_review.add_argument("--manifest", required=True)
+    ball_review.add_argument("--out", required=True)
+    ball_review.add_argument("--report-out", required=True)
+    ball_review.add_argument("--positive-frames", type=int, default=40)
+    ball_review.add_argument("--negative-frames", type=int, default=40)
+    ball_review.add_argument("--seed", type=int, default=2027)
+    ball_review.add_argument("--class-name", default="ball")
+    ball_review.add_argument(
+        "--source-group-mode",
+        choices=["video", "original-video"],
+        default="original-video",
+    )
+    ball_review.add_argument("--min-frame-gap", type=int, default=5)
+    ball_review.set_defaults(func=cmd_select_ball_review)
+
+    audit_ball_review = sub.add_parser(
+        "audit-ball-review",
+        help="Auditar un paquete de revision humana de pelota.",
+    )
+    audit_ball_review.add_argument("--review", required=True)
+    audit_ball_review.add_argument("--out", required=True)
+    audit_ball_review.add_argument("--report-out", default=None)
+    audit_ball_review.add_argument("--class-name", default="ball")
+    audit_ball_review.set_defaults(func=cmd_audit_ball_review)
+
+    export_ball_review = sub.add_parser(
+        "export-reviewed-ball",
+        help="Convertir revision humana de pelota en manifest entrenable.",
+    )
+    export_ball_review.add_argument("--review", required=True)
+    export_ball_review.add_argument("--out", required=True)
+    export_ball_review.add_argument("--report-out", required=True)
+    export_ball_review.add_argument("--class-name", default="ball")
+    export_ball_review.add_argument(
+        "--require-complete",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    export_ball_review.add_argument(
+        "--include-verified-absence",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    export_ball_review.add_argument(
+        "--split-strategy",
+        choices=["preserve", "by-source-balanced"],
+        default="preserve",
+    )
+    export_ball_review.add_argument("--train-ratio", type=float, default=0.8)
+    export_ball_review.add_argument("--val-ratio", type=float, default=0.1)
+    export_ball_review.set_defaults(func=cmd_export_reviewed_ball)
 
     color_ball = sub.add_parser(
         "detect-orange-ball",
@@ -238,6 +448,29 @@ def build_parser() -> argparse.ArgumentParser:
     color_ball.add_argument("--border-margin-px", type=float, default=4.0)
     color_ball.add_argument("--max-per-frame", type=int, default=1)
     color_ball.set_defaults(func=cmd_detect_orange_ball)
+
+    dark_robots = sub.add_parser(
+        "detect-dark-robots",
+        help="Recuperar robots oscuros en vista superior con color/forma.",
+    )
+    dark_robots.add_argument("--video", required=True)
+    dark_robots.add_argument("--out", required=True)
+    dark_robots.add_argument("--max-frames", type=int, default=None)
+    dark_robots.add_argument("--min-area", type=float, default=350.0)
+    dark_robots.add_argument("--max-area", type=float, default=18000.0)
+    dark_robots.add_argument("--min-extent", type=float, default=0.18)
+    dark_robots.add_argument("--max-extent", type=float, default=0.92)
+    dark_robots.add_argument("--min-circularity", type=float, default=0.12)
+    dark_robots.add_argument("--hsv-lower", default=None, help="HSV lower bound as H,S,V.")
+    dark_robots.add_argument("--hsv-upper", default=None, help="HSV upper bound as H,S,V.")
+    dark_robots.add_argument("--field-detections", default=None)
+    dark_robots.add_argument("--field-margin-px", type=float, default=8.0)
+    dark_robots.add_argument("--border-margin-px", type=float, default=4.0)
+    dark_robots.add_argument("--min-center-y-ratio", type=float, default=0.0)
+    dark_robots.add_argument("--max-center-y-ratio", type=float, default=1.0)
+    dark_robots.add_argument("--merge-distance-px", type=float, default=32.0)
+    dark_robots.add_argument("--max-per-frame", type=int, default=6)
+    dark_robots.set_defaults(func=cmd_detect_dark_robots)
 
     refine_ball = sub.add_parser("refine-ball", help="Refinar trayectoria temporal de pelota.")
     refine_ball.add_argument("--detections", required=True)
@@ -265,6 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--field-dedupe-iou", type=float, default=0.90)
     process.add_argument("--ball-dedupe-iou", type=float, default=0.70)
     process.add_argument("--goals", action=argparse.BooleanOptionalAction, default=True)
+    process.add_argument("--human-context", action=argparse.BooleanOptionalAction, default=None)
     process.add_argument("--color-goals", action=argparse.BooleanOptionalAction, default=None)
     process.add_argument("--merge-dedupe-iou", type=float, default=0.85)
     process.add_argument("--track-iou-threshold", type=float, default=0.05)
@@ -300,7 +534,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--render-narrative", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--render-analysis", action=argparse.BooleanOptionalAction, default=True)
     process.add_argument("--analysis-freeze", action=argparse.BooleanOptionalAction, default=False)
-    process.add_argument("--freeze-seconds", type=float, default=1.5)
+    process.add_argument("--freeze-seconds", type=float, default=3.0)
     process.add_argument("--freeze-min-confidence", type=float, default=0.45)
     process.add_argument("--freeze-cooldown-frames", type=int, default=60)
     process.add_argument("--freeze-max-events", type=int, default=20)
@@ -309,6 +543,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="CSV de eventos que activan freeze frames en render analysis.",
     )
+    process.add_argument("--mask-overlay", action=argparse.BooleanOptionalAction, default=True)
+    process.add_argument("--mask-alpha", type=float, default=0.35)
+    process.add_argument("--label-scale", type=float, default=0.75)
+    process.add_argument("--box-thickness", type=int, default=3)
+    process.add_argument("--visual-hold-frames", type=int, default=12)
     process.set_defaults(func=cmd_process_video)
 
     top_camera = sub.add_parser(
@@ -325,6 +564,11 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--field-threshold", type=float, default=0.45)
     top_camera.add_argument("--field-dedupe-iou", type=float, default=0.90)
     top_camera.add_argument("--goals", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.add_argument(
+        "--human-context",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     top_camera.add_argument("--color-goals", action=argparse.BooleanOptionalAction, default=None)
     top_camera.add_argument("--sam3-ball", action=argparse.BooleanOptionalAction, default=None)
     top_camera.add_argument("--color-ball", action=argparse.BooleanOptionalAction, default=None)
@@ -349,6 +593,28 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--ball-color-profile", default=None)
     top_camera.add_argument("--ball-hsv-lower", default=None, help="HSV lower bound as H,S,V.")
     top_camera.add_argument("--ball-hsv-upper", default=None, help="HSV upper bound as H,S,V.")
+    top_camera.add_argument(
+        "--robot-color-recovery",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Agregar recuperacion HSV/forma de robots oscuros como fuente opcional.",
+    )
+    top_camera.add_argument("--robot-recovery-min-area", type=float, default=800.0)
+    top_camera.add_argument("--robot-recovery-max-area", type=float, default=18000.0)
+    top_camera.add_argument("--robot-recovery-min-circularity", type=float, default=0.30)
+    top_camera.add_argument("--robot-recovery-hsv-lower", default=None)
+    top_camera.add_argument("--robot-recovery-hsv-upper", default="179,255,125")
+    top_camera.add_argument("--robot-recovery-min-center-y-ratio", type=float, default=0.0)
+    top_camera.add_argument("--robot-recovery-max-center-y-ratio", type=float, default=1.0)
+    top_camera.add_argument("--robot-recovery-merge-distance-px", type=float, default=32.0)
+    top_camera.add_argument("--robot-recovery-max-per-frame", type=int, default=6)
+    top_camera.add_argument("--robot-filter", action=argparse.BooleanOptionalAction, default=None)
+    top_camera.add_argument("--robot-filter-max-per-frame", type=int, default=None)
+    top_camera.add_argument("--robot-filter-min-area", type=float, default=None)
+    top_camera.add_argument("--robot-filter-max-area-ratio", type=float, default=None)
+    top_camera.add_argument("--robot-filter-containment-threshold", type=float, default=None)
+    top_camera.add_argument("--robot-filter-iou-threshold", type=float, default=None)
+    top_camera.add_argument("--robot-filter-min-center-distance-px", type=float, default=None)
     top_camera.add_argument("--refine-max-jump-px", type=float, default=35.0)
     top_camera.add_argument("--refine-preferred-area", type=float, default=680.0)
     top_camera.add_argument("--refine-score-weight", type=float, default=2.0)
@@ -380,7 +646,7 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--render-narrative", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--render-analysis", action=argparse.BooleanOptionalAction, default=True)
     top_camera.add_argument("--analysis-freeze", action=argparse.BooleanOptionalAction, default=False)
-    top_camera.add_argument("--freeze-seconds", type=float, default=1.5)
+    top_camera.add_argument("--freeze-seconds", type=float, default=3.0)
     top_camera.add_argument("--freeze-min-confidence", type=float, default=0.45)
     top_camera.add_argument("--freeze-cooldown-frames", type=int, default=60)
     top_camera.add_argument("--freeze-max-events", type=int, default=20)
@@ -389,6 +655,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="CSV de eventos que activan freeze frames en render analysis.",
     )
+    top_camera.add_argument("--mask-overlay", action=argparse.BooleanOptionalAction, default=True)
+    top_camera.add_argument("--mask-alpha", type=float, default=0.35)
+    top_camera.add_argument("--label-scale", type=float, default=0.75)
+    top_camera.add_argument("--box-thickness", type=int, default=3)
+    top_camera.add_argument("--visual-hold-frames", type=int, default=12)
     top_camera.set_defaults(func=cmd_process_top_camera)
 
     field_analysis = sub.add_parser(
@@ -458,6 +729,17 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--field-map", default=None)
     report.set_defaults(func=cmd_summarize_run)
 
+    submission = sub.add_parser(
+        "submission-report",
+        help="Crear reporte Markdown de evidencia final desde un batch procesado.",
+    )
+    submission.add_argument("--batch-root", required=True)
+    submission.add_argument("--training-root", default=None)
+    submission.add_argument("--out", required=True)
+    submission.add_argument("--title", default="SAMBA FutBot Submission Evidence")
+    submission.add_argument("--top", type=int, default=4)
+    submission.set_defaults(func=cmd_submission_report)
+
     qa = sub.add_parser("qa-run", help="Evaluar calidad automatica de una corrida.")
     qa.add_argument("--out", required=True)
     qa.add_argument("--report-out", default=None)
@@ -484,6 +766,16 @@ def build_parser() -> argparse.ArgumentParser:
     qa_index.add_argument("--report-out", default=None)
     qa_index.set_defaults(func=cmd_qa_index)
 
+    compare_qa = sub.add_parser(
+        "compare-qa",
+        help="Comparar QA baseline contra candidato para medir mejoras o regresiones.",
+    )
+    compare_qa.add_argument("--baseline", required=True)
+    compare_qa.add_argument("--candidate", required=True)
+    compare_qa.add_argument("--out", required=True)
+    compare_qa.add_argument("--report-out", default=None)
+    compare_qa.set_defaults(func=cmd_compare_qa)
+
     showcase = sub.add_parser(
         "showcase-index",
         help="Seleccionar corridas candidatas para demo final desde reportes QA.",
@@ -501,6 +793,16 @@ def build_parser() -> argparse.ArgumentParser:
     track.add_argument("--iou-threshold", type=float, default=0.25)
     track.add_argument("--max-age", type=int, default=12)
     track.set_defaults(func=cmd_track)
+
+    assign_teams = sub.add_parser(
+        "assign-teams",
+        help="Asignar equipos azul/amarillo a tracks existentes usando el video.",
+    )
+    assign_teams.add_argument("--video", required=True)
+    assign_teams.add_argument("--tracks", required=True)
+    assign_teams.add_argument("--out", required=True)
+    assign_teams.add_argument("--config", default="config/default.yml")
+    assign_teams.set_defaults(func=cmd_assign_teams)
 
     events = sub.add_parser("events", help="Detectar eventos de juego.")
     events.add_argument("--tracks", required=True)
@@ -520,6 +822,31 @@ def build_parser() -> argparse.ArgumentParser:
     event_summary.add_argument("--events", required=True)
     event_summary.add_argument("--out", required=True)
     event_summary.set_defaults(func=cmd_event_summary)
+
+    validate_goals = sub.add_parser(
+        "validate-goals",
+        help="Validar goal_candidate temporalmente usando tracks existentes.",
+    )
+    validate_goals.add_argument("--tracks", required=True)
+    validate_goals.add_argument("--events", required=True)
+    validate_goals.add_argument("--out", required=True)
+    validate_goals.add_argument("--config", default="config/default.yml")
+    validate_goals.set_defaults(func=cmd_validate_goals)
+
+    team_quality = sub.add_parser(
+        "team-quality",
+        help="Auditar cobertura y consistencia temporal de equipos en tracks.",
+    )
+    team_quality.add_argument("--tracks", required=True)
+    team_quality.add_argument("--out", required=True)
+    team_quality.add_argument("--report-out", default=None)
+    team_quality.add_argument("--unknown-ratio-threshold", type=float, default=0.20)
+    team_quality.add_argument("--ambiguous-track-dominance", type=float, default=0.75)
+    team_quality.add_argument("--min-ambiguous-track-samples", type=int, default=2)
+    team_quality.add_argument("--min-frame-team-coverage", type=float, default=0.80)
+    team_quality.add_argument("--max-dominant-team-ratio", type=float, default=0.85)
+    team_quality.add_argument("--max-review-candidates", type=int, default=100)
+    team_quality.set_defaults(func=cmd_team_quality)
 
     situations = sub.add_parser(
         "situation-analysis",
@@ -566,11 +893,16 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--trail-length", type=int, default=45)
     render.add_argument("--style", choices=["narrative", "analysis"], default="narrative")
     render.add_argument("--analysis-freeze", action=argparse.BooleanOptionalAction, default=False)
-    render.add_argument("--freeze-seconds", type=float, default=1.5)
+    render.add_argument("--freeze-seconds", type=float, default=3.0)
     render.add_argument("--freeze-min-confidence", type=float, default=0.45)
     render.add_argument("--freeze-cooldown-frames", type=int, default=60)
     render.add_argument("--freeze-max-events", type=int, default=20)
     render.add_argument("--freeze-event-types", default=None)
+    render.add_argument("--mask-overlay", action=argparse.BooleanOptionalAction, default=True)
+    render.add_argument("--mask-alpha", type=float, default=0.35)
+    render.add_argument("--label-scale", type=float, default=0.75)
+    render.add_argument("--box-thickness", type=int, default=3)
+    render.add_argument("--visual-hold-frames", type=int, default=12)
     render.set_defaults(func=cmd_render_demo)
 
     info = sub.add_parser("video-info", help="Mostrar metadata de video.")
@@ -678,7 +1010,11 @@ def cmd_run_sam3(args: argparse.Namespace) -> None:
     detections = run_sam3_video(
         args.video,
         args.out,
-        prompts=sam_config.get("prompts", {}),
+        prompts=_filtered_prompts(
+            sam_config.get("prompts", {}),
+            None,
+            max_per_class=sam_config.get("max_prompts_per_class"),
+        ),
         backend=args.backend or sam_config.get("backend", "official"),
         model_id=args.model_id or sam_config.get("model_id", "facebook/sam3.1"),
         max_frames=args.max_frames or sam_config.get("max_frames"),
@@ -718,7 +1054,11 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
     prompt_frames = parse_int_list(args.prompt_frames)
     end_frame = args.end_frame or int(video_info(args.video)["frames"])
     window_size = int(args.window_size or sam_config.get("max_frames", 300))
-    prompts = _filtered_prompts(sam_config.get("prompts", {}), args.classes)
+    prompts = _filtered_prompts(
+        sam_config.get("prompts", {}),
+        args.classes,
+        max_per_class=sam_config.get("max_prompts_per_class"),
+    )
     threshold = args.threshold if args.threshold is not None else float(sam_config.get("threshold", 0.45))
 
     detection_files: list[Path] = []
@@ -921,11 +1261,323 @@ def cmd_merge_frame_datasets(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_dataset_quality(args: argparse.Namespace) -> None:
+    report = analyze_dataset_quality_file(
+        args.manifest,
+        low_score_threshold=args.low_score_threshold,
+        max_review_examples=args.max_review_examples,
+    )
+    write_json(args.out, report)
+    markdown = None
+    if args.report_out:
+        markdown = write_dataset_quality_markdown(report, args.report_out)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": str(markdown) if markdown else None,
+                "summary": report["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_curate_dataset(args: argparse.Namespace) -> None:
+    exclusions = None
+    if args.review_exclusions:
+        raw_exclusions = read_json(args.review_exclusions)
+        if isinstance(raw_exclusions, list):
+            exclusions = raw_exclusions
+        elif isinstance(raw_exclusions, dict):
+            exclusions = (
+                raw_exclusions.get("review_exclusions")
+                or raw_exclusions.get("review_candidates")
+                or []
+            )
+        else:
+            raise ValueError("review exclusions must be a JSON list or object")
+    classes = [part.strip() for part in args.classes.split(",") if part.strip()]
+    curated, report = curate_dataset_manifest_file(
+        args.manifest,
+        args.out,
+        args.report_out,
+        classes=classes,
+        min_score=args.min_score,
+        review_exclusions=exclusions,
+        drop_empty_frames=args.drop_empty_frames,
+        deduplicate_source_frames=args.deduplicate_source_frames,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": args.report_out,
+                "summary": curated["summary"],
+                "curation": report["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_select_holdout(args: argparse.Namespace) -> None:
+    holdout, report = select_human_holdout_file(
+        args.manifest,
+        args.out,
+        args.report_out,
+        max_frames=args.max_frames,
+        preferred_split=args.preferred_split,
+        seed=args.seed,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": args.report_out,
+                "summary": holdout["summary"],
+                "selection_fingerprint": report["selection_fingerprint"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_select_ball_review(args: argparse.Namespace) -> None:
+    review, report = select_ball_review_set_file(
+        args.manifest,
+        args.out,
+        args.report_out,
+        positive_frames=args.positive_frames,
+        negative_frames=args.negative_frames,
+        seed=args.seed,
+        class_name=args.class_name,
+        source_group_mode=args.source_group_mode,
+        min_frame_gap=args.min_frame_gap,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": args.report_out,
+                "summary": review["summary"],
+                "selection_fingerprint": report["selection_fingerprint"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_audit_ball_review(args: argparse.Namespace) -> None:
+    audit = audit_ball_review_file(
+        args.review,
+        args.out,
+        class_name=args.class_name,
+        report_path=args.report_out,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": args.report_out,
+                "ready_for_training": audit["ready_for_training"],
+                "summary": audit["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_export_reviewed_ball(args: argparse.Namespace) -> None:
+    manifest, report = export_reviewed_ball_manifest_file(
+        args.review,
+        args.out,
+        args.report_out,
+        class_name=args.class_name,
+        require_complete=args.require_complete,
+        include_verified_absence=args.include_verified_absence,
+        split_strategy=args.split_strategy,
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": args.report_out,
+                "summary": manifest["summary"],
+                "ready_for_training": report["audit"]["ready_for_training"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def cmd_export_coco(args: argparse.Namespace) -> None:
-    paths = export_coco_detection(args.manifest, args.out_dir)
+    paths = export_coco_detection(
+        args.manifest,
+        args.out_dir,
+        image_root=args.image_root,
+    )
     print(
         json.dumps(
             {"out_dir": args.out_dir, "annotations": {key: str(value) for key, value in paths.items()}},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_balance_coco(args: argparse.Namespace) -> None:
+    focus_classes = [
+        class_name.strip()
+        for class_name in args.focus_classes.split(",")
+        if class_name.strip()
+    ]
+    summary = export_balanced_coco_subset(
+        args.annotations,
+        args.out,
+        focus_classes=focus_classes,
+        negative_ratio=args.negative_ratio,
+        max_positive_images=args.max_positive_images,
+        seed=args.seed,
+        focus_only=args.focus_only,
+    )
+    print(
+        json.dumps(
+            {"out": args.out, "summary": summary},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_prepare_sam3_finetune(args: argparse.Namespace) -> None:
+    prompt_overrides = None
+    if args.class_prompts:
+        raw_prompts = read_json(args.class_prompts)
+        if not isinstance(raw_prompts, dict):
+            raise ValueError("class prompts JSON must be an object")
+        prompt_overrides = {
+            str(class_name): str(prompt)
+            for class_name, prompt in raw_prompts.items()
+        }
+    report = prepare_sam3_finetune_config(
+        args.template,
+        args.out,
+        data_root=args.data_root,
+        train_json=args.train_json,
+        val_json=args.val_json,
+        experiment_dir=args.experiment_dir,
+        bpe_path=args.bpe_path,
+        epochs=args.epochs,
+        train_limit=args.train_limit,
+        val_limit=args.val_limit,
+        resolution=args.resolution,
+        num_workers=args.num_workers,
+        prompts=prompt_overrides,
+        mode=args.mode,
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def cmd_compare_sam3_finetune(args: argparse.Namespace) -> None:
+    comparison = evaluate_and_compare_coco_files(
+        args.ground_truth,
+        args.baseline,
+        args.candidate,
+        out_path=args.out,
+        report_path=args.report_out,
+        iou_type=args.iou_type,
+    )
+    overall = comparison["overall"]
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": args.report_out,
+                "verdict": comparison["verdict"],
+                "images": comparison["images"],
+                "baseline_ap": overall["AP"]["baseline"],
+                "candidate_ap": overall["AP"]["candidate"],
+                "ap_delta": overall["AP"]["delta"],
+                "ap_relative_change": overall["AP"]["relative_change"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_export_sam3_training(args: argparse.Namespace) -> None:
+    prompt_overrides = None
+    if args.class_prompts:
+        raw_prompts = read_json(args.class_prompts)
+        if not isinstance(raw_prompts, dict):
+            raise ValueError("class prompts JSON must be an object")
+        prompt_overrides = {
+            str(class_name): str(prompt)
+            for class_name, prompt in raw_prompts.items()
+        }
+    negative_classes = [
+        part.strip()
+        for part in args.negative_classes.split(",")
+        if part.strip()
+    ]
+    result = export_sam3_training(
+        args.manifest,
+        args.out_dir,
+        class_prompts=prompt_overrides,
+        include_negatives=args.include_negatives,
+        negative_classes=negative_classes,
+        max_negative_classes_per_image=args.max_negative_classes_per_image,
+        max_negative_pairs_per_class=args.max_negative_pairs_per_class,
+        image_root=args.image_root,
+    )
+    print(
+        json.dumps(
+            {
+                "out_dir": args.out_dir,
+                "annotations": {
+                    key: str(path)
+                    for key, path in result["annotations"].items()
+                },
+                "report": str(result["report"]),
+                "summary": result["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_finetune_preflight(args: argparse.Namespace) -> None:
+    report = write_finetune_preflight(
+        args.out,
+        sam3_root=args.sam3_root,
+        checkpoint=args.checkpoint,
+        train_json=args.train_json,
+        val_json=args.val_json,
+        train_images=args.train_images,
+        val_images=args.val_images,
+        check_cuda=args.check_cuda,
+        python_executable=args.python_executable,
+    )
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "status": report["status"],
+                "summary": report["summary"],
+                "cuda": report["cuda"],
+                "suggested_command": report["suggested_command"],
+            },
             ensure_ascii=False,
             indent=2,
         )
@@ -955,6 +1607,41 @@ def cmd_detect_orange_ball(args: argparse.Namespace) -> None:
         max_per_frame=args.max_per_frame,
     )
     print(json.dumps({"out": args.out, "detections": len(detections)}, indent=2))
+
+
+def cmd_detect_dark_robots(args: argparse.Namespace) -> None:
+    hsv_lower = _parse_hsv_bound(args.hsv_lower, fallback=(0, 0, 0))
+    hsv_upper = _parse_hsv_bound(args.hsv_upper, fallback=(179, 255, 105))
+    detections = detect_dark_robots(
+        args.video,
+        args.out,
+        max_frames=args.max_frames,
+        min_area=args.min_area,
+        max_area=args.max_area,
+        min_extent=args.min_extent,
+        max_extent=args.max_extent,
+        min_circularity=args.min_circularity,
+        hsv_lower=hsv_lower,
+        hsv_upper=hsv_upper,
+        field_detections_path=args.field_detections,
+        field_margin_px=args.field_margin_px,
+        border_margin_px=args.border_margin_px,
+        min_center_y_ratio=args.min_center_y_ratio,
+        max_center_y_ratio=args.max_center_y_ratio,
+        merge_distance_px=args.merge_distance_px,
+        max_per_frame=args.max_per_frame,
+    )
+    by_late_frame = sum(1 for det in detections if det.frame_index >= 120)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "detections": len(detections),
+                "detections_from_frame_120": by_late_frame,
+            },
+            indent=2,
+        )
+    )
 
 
 def cmd_refine_ball(args: argparse.Namespace) -> None:
@@ -1016,7 +1703,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
 
     field_detections = _run_sweep_for_process(
         args,
-        classes=_context_classes(args),
+        classes=_context_classes(args, config),
         prompt_frames=field_prompt_frames,
         window_size=args.field_window_size,
         end_frame=end_frame,
@@ -1051,6 +1738,11 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         if args.ball_border_margin_px is not None
         else float(analysis_config.get("ball_border_margin_px", 4))
     )
+    field_margin_px = (
+        args.in_play_field_margin_px
+        if args.in_play_field_margin_px is not None
+        else float(analysis_config.get("in_play_field_margin_px", 8))
+    )
     filtered = filter_edge_ball_detections(
         merged,
         frame_width=int(info.get("width") or 0) or None,
@@ -1078,11 +1770,6 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         args.possession_radius_px
         if args.possession_radius_px is not None
         else float(analysis_config.get("possession_radius_px", 90))
-    )
-    field_margin_px = (
-        args.in_play_field_margin_px
-        if args.in_play_field_margin_px is not None
-        else float(analysis_config.get("in_play_field_margin_px", 8))
     )
     game_state_result = _write_pipeline_game_state(
         args,
@@ -1124,6 +1811,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         ),
         field_margin_px=field_margin_px,
     )
+    events = _confirm_goals_for_process(analysis_tracks, events, analysis_config)
     write_events(events_out, events)
     event_summary = summarize_events(events)
     event_summary["external_events"] = len(game_state_result["external_events"])
@@ -1364,6 +2052,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
     field_out = results_dir / "detections" / f"{stem}-field-robots-sweep-clipped"
     sam3_ball_out = results_dir / "detections" / f"{stem}-{args.suffix}-sam3-ball-sweep-clipped"
     color_ball_out = results_dir / "detections" / f"{stem}-{args.suffix}-color-ball.jsonl"
+    robot_recovery_out = results_dir / "detections" / f"{stem}-{args.suffix}-dark-robots.jsonl"
     color_goals_out = results_dir / "detections" / f"{stem}-{args.suffix}-color-goals.jsonl"
     merged_dir = results_dir / "detections" / f"{stem}-{args.suffix}"
     merged_out = merged_dir / "detections.jsonl"
@@ -1375,7 +2064,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
 
     field_detections = _run_sweep_for_process(
         args,
-        classes=_context_classes(args),
+        classes=_context_classes(args, config),
         prompt_frames=field_prompt_frames,
         window_size=args.field_window_size,
         end_frame=end_frame,
@@ -1402,6 +2091,11 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         if args.ball_border_margin_px is not None
         else float(analysis_config.get("ball_border_margin_px", 4))
     )
+    field_margin_px = (
+        args.in_play_field_margin_px
+        if args.in_play_field_margin_px is not None
+        else float(analysis_config.get("in_play_field_margin_px", 8))
+    )
     color_profile, hsv_lower, hsv_upper = _resolve_ball_color_profile(
         ball_detection_config,
         profile=args.ball_color_profile,
@@ -1425,6 +2119,25 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             border_margin_px=ball_border_margin_px,
             max_per_frame=args.orange_max_per_frame,
         )
+    robot_recovery_detections = []
+    if args.robot_color_recovery:
+        robot_recovery_detections = detect_dark_robots(
+            args.video,
+            robot_recovery_out,
+            max_frames=end_frame,
+            min_area=args.robot_recovery_min_area,
+            max_area=args.robot_recovery_max_area,
+            min_circularity=args.robot_recovery_min_circularity,
+            hsv_lower=_parse_hsv_bound(args.robot_recovery_hsv_lower, fallback=(0, 0, 0)),
+            hsv_upper=_parse_hsv_bound(args.robot_recovery_hsv_upper, fallback=(179, 255, 125)),
+            field_detections_path=field_out / "detections.jsonl",
+            field_margin_px=field_margin_px,
+            border_margin_px=4.0,
+            min_center_y_ratio=args.robot_recovery_min_center_y_ratio,
+            max_center_y_ratio=args.robot_recovery_max_center_y_ratio,
+            merge_distance_px=args.robot_recovery_merge_distance_px,
+            max_per_frame=args.robot_recovery_max_per_frame,
+        )
     color_goal_detections = _detect_color_goals_for_process(
         args,
         config,
@@ -1438,6 +2151,8 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         merge_inputs.append(sam3_ball_out / "detections.jsonl")
     if color_ball_enabled:
         merge_inputs.append(color_ball_out)
+    if args.robot_color_recovery:
+        merge_inputs.append(robot_recovery_out)
     if color_goal_detections is not None:
         merge_inputs.append(color_goals_out)
     merged = merge_detection_files(
@@ -1445,6 +2160,51 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         merged_out,
         iou_threshold=args.merge_dedupe_iou,
     )
+    robot_filter_config = config.get("robot_filter", {})
+    robot_filter_enabled = (
+        args.robot_filter
+        if args.robot_filter is not None
+        else bool(robot_filter_config.get("enabled", True))
+    )
+    robot_filter_removed = 0
+    if robot_filter_enabled:
+        before_robot_filter = len(merged)
+        merged = filter_robot_detections(
+            merged,
+            frame_width=int(info.get("width") or 0) or None,
+            frame_height=int(info.get("height") or 0) or None,
+            max_per_frame=_resolve_optional_int(
+                args.robot_filter_max_per_frame,
+                robot_filter_config.get("max_per_frame"),
+            ),
+            min_area=_resolve_optional_float(
+                args.robot_filter_min_area,
+                robot_filter_config.get("min_area"),
+                default=0.0,
+            ),
+            max_area_ratio=_resolve_optional_float(
+                args.robot_filter_max_area_ratio,
+                robot_filter_config.get("max_area_ratio"),
+                default=None,
+            ),
+            containment_threshold=_resolve_optional_float(
+                args.robot_filter_containment_threshold,
+                robot_filter_config.get("containment_threshold"),
+                default=0.82,
+            ),
+            iou_threshold=_resolve_optional_float(
+                args.robot_filter_iou_threshold,
+                robot_filter_config.get("iou_threshold"),
+                default=0.55,
+            ),
+            min_center_distance_px=_resolve_optional_float(
+                args.robot_filter_min_center_distance_px,
+                robot_filter_config.get("min_center_distance_px"),
+                default=0.0,
+            ),
+        )
+        robot_filter_removed = before_robot_filter - len(merged)
+        write_detections(merged_out, merged)
     refined = refine_ball_trajectory(
         merged,
         max_jump_px=args.refine_max_jump_px,
@@ -1470,11 +2230,6 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         args.possession_radius_px
         if args.possession_radius_px is not None
         else float(analysis_config.get("possession_radius_px", 90))
-    )
-    field_margin_px = (
-        args.in_play_field_margin_px
-        if args.in_play_field_margin_px is not None
-        else float(analysis_config.get("in_play_field_margin_px", 8))
     )
     game_state_result = _write_pipeline_game_state(
         args,
@@ -1516,6 +2271,7 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         ),
         field_margin_px=field_margin_px,
     )
+    events = _confirm_goals_for_process(analysis_tracks, events, analysis_config)
     write_events(events_out, events)
     event_summary = summarize_events(events)
     event_summary["external_events"] = len(game_state_result["external_events"])
@@ -1612,6 +2368,9 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                 sam3_ball_out / "detections.jsonl" if sam3_ball_enabled else None
             ),
             "color_ball_detections": color_ball_out if color_ball_enabled else None,
+            "robot_recovery_detections": (
+                robot_recovery_out if args.robot_color_recovery else None
+            ),
             "color_goal_detections": (
                 color_goals_out if color_goal_detections is not None else None
             ),
@@ -1661,12 +2420,14 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                 "ball_prompt_frames": ball_prompt_frames if sam3_ball_enabled else [],
                 "sam3_ball_candidates": len(sam3_ball_detections),
                 "color_ball_candidates": len(color_ball_detections),
+                "robot_recovery_candidates": len(robot_recovery_detections),
                 "color_goal_candidates": (
                     len(color_goal_detections) if color_goal_detections is not None else None
                 ),
                 "ball_color_profile": color_profile if color_ball_enabled else None,
                 "ball_candidates_before_refine": ball_in,
                 "ball_detections_after_refine": ball_out,
+                "robot_filter_removed": robot_filter_removed,
                 "goal_constraints_removed": goal_constraints_removed,
                 "detections": len(refined),
                 "analysis_detections": len(analysis_tracks),
@@ -1677,6 +2438,9 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                         str(sam3_ball_out / "detections.jsonl") if sam3_ball_enabled else None
                     ),
                     "color_ball_detections": str(color_ball_out) if color_ball_enabled else None,
+                    "robot_recovery_detections": (
+                        str(robot_recovery_out) if args.robot_color_recovery else None
+                    ),
                     "color_goal_detections": (
                         str(color_goals_out) if color_goal_detections is not None else None
                     ),
@@ -1962,6 +2726,11 @@ def _render_pipeline_videos(
             freeze_cooldown_frames=args.freeze_cooldown_frames,
             freeze_max_events=args.freeze_max_events,
             freeze_event_types=args.freeze_event_types,
+            mask_overlay=args.mask_overlay,
+            mask_alpha=args.mask_alpha,
+            label_scale=args.label_scale,
+            box_thickness=args.box_thickness,
+            visual_hold_frames=args.visual_hold_frames,
         )
     return rendered
 
@@ -2189,11 +2958,35 @@ def _team_palette(raw_palette: dict) -> dict[str, tuple[int, int, int]]:
     return palette
 
 
-def _context_classes(args: argparse.Namespace) -> str:
+def _context_classes(args: argparse.Namespace, config: dict | None = None) -> str:
     classes = ["field", "robots"]
     if getattr(args, "goals", False):
         classes.extend(["goal_blue", "goal_yellow"])
+    human_config = (config or {}).get("human_detection", {})
+    human_enabled = (
+        bool(human_config.get("enabled", False))
+        if getattr(args, "human_context", None) is None
+        else bool(args.human_context)
+    )
+    if human_enabled:
+        classes.extend(str(item) for item in human_config.get("classes", []) if str(item))
+    classes = list(dict.fromkeys(classes))
     return ",".join(classes)
+
+
+def _confirm_goals_for_process(detections: list, events: list, analysis_config: dict) -> list:
+    goal_config = analysis_config.get("goal_confirmation", {})
+    if not bool(goal_config.get("enabled", True)):
+        return events
+    return confirm_goal_candidates(
+        detections,
+        events,
+        lookback_frames=int(goal_config.get("lookback_frames", 8)),
+        confirmation_frames=int(goal_config.get("confirmation_frames", 4)),
+        min_inside_frames=int(goal_config.get("min_inside_frames", 2)),
+        min_entry_motion_px=float(goal_config.get("min_entry_motion_px", 3.0)),
+        min_goal_score=float(goal_config.get("min_goal_score", 0.45)),
+    )
 
 
 def _run_sweep_for_process(
@@ -2239,11 +3032,27 @@ def _frame_anchors(end_frame: int, *, start: int, step: int) -> list[int]:
     return anchors
 
 
-def _filtered_prompts(prompts: dict, classes_csv: str | None) -> dict:
-    if not classes_csv:
-        return prompts
-    classes = {part.strip() for part in classes_csv.split(",") if part.strip()}
-    return {class_name: value for class_name, value in prompts.items() if class_name in classes}
+def _filtered_prompts(
+    prompts: dict,
+    classes_csv: str | None,
+    *,
+    max_per_class: int | None = None,
+) -> dict:
+    filtered = prompts
+    if classes_csv:
+        classes = {part.strip() for part in classes_csv.split(",") if part.strip()}
+        filtered = {
+            class_name: value for class_name, value in prompts.items() if class_name in classes
+        }
+    if max_per_class is None:
+        return filtered
+    limit = int(max_per_class)
+    if limit <= 0:
+        return filtered
+    return {
+        class_name: value[:limit] if isinstance(value, list) else value
+        for class_name, value in filtered.items()
+    }
 
 
 def _resolve_ball_color_profile(
@@ -2272,6 +3081,27 @@ def _resolve_ball_color_profile(
         fallback=profile_config.get("hsv_upper", [25, 255, 255]),
     )
     return resolved_profile, lower, upper
+
+
+def _resolve_optional_float(
+    cli_value: float | None,
+    config_value: object,
+    *,
+    default: float | None,
+) -> float | None:
+    if cli_value is not None:
+        return float(cli_value)
+    if config_value is None:
+        return default
+    return float(config_value)
+
+
+def _resolve_optional_int(cli_value: int | None, config_value: object) -> int | None:
+    if cli_value is not None:
+        return int(cli_value)
+    if config_value is None:
+        return None
+    return int(config_value)
 
 
 def _parse_hsv_bound(value: str | None, *, fallback: object) -> tuple[int, int, int]:
@@ -2382,6 +3212,17 @@ def cmd_summarize_run(args: argparse.Namespace) -> None:
     print(json.dumps({"report": str(out)}, indent=2))
 
 
+def cmd_submission_report(args: argparse.Namespace) -> None:
+    out = write_submission_report(
+        args.out,
+        batch_root=args.batch_root,
+        training_root=args.training_root,
+        title=args.title,
+        top=args.top,
+    )
+    print(json.dumps({"report": str(out)}, ensure_ascii=False, indent=2))
+
+
 def cmd_qa_run(args: argparse.Namespace) -> None:
     thresholds = _qa_thresholds(args)
     report = evaluate_run_quality(
@@ -2422,6 +3263,27 @@ def cmd_qa_index(args: argparse.Namespace) -> None:
                 "report": str(report_out) if report_out else None,
                 "runs": len(reports),
                 "best": reports[0] if reports else None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_compare_qa(args: argparse.Namespace) -> None:
+    comparison = compare_qa_files(args.baseline, args.candidate)
+    write_qa_comparison_json(args.out, comparison)
+    markdown = None
+    if args.report_out:
+        markdown = write_qa_comparison_markdown(args.report_out, comparison)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": str(markdown) if markdown else None,
+                "verdict": comparison["verdict"],
+                "summary": comparison["summary"],
+                "claims": comparison["claims"],
             },
             ensure_ascii=False,
             indent=2,
@@ -2478,6 +3340,31 @@ def cmd_track(args: argparse.Namespace) -> None:
     print(json.dumps({"tracks_out": args.out, "detections": len(tracked)}, indent=2))
 
 
+def cmd_assign_teams(args: argparse.Namespace) -> None:
+    assigned = _assign_teams_for_process(
+        args.video,
+        read_detections(args.tracks),
+        load_config(args.config),
+    )
+    write_detections(args.out, assigned)
+    counts: dict[str, int] = {}
+    for detection in assigned:
+        if detection.class_name not in ROBOT_CLASSES:
+            continue
+        team = detection.team or "unknown"
+        counts[team] = counts.get(team, 0) + 1
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "robot_samples_by_team": dict(sorted(counts.items())),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def cmd_events(args: argparse.Namespace) -> None:
     detections = _filter_by_game_state(read_detections(args.tracks), args.game_state)
     events = detect_events(
@@ -2513,6 +3400,60 @@ def cmd_event_summary(args: argparse.Namespace) -> None:
     summary = summarize_events(events)
     write_json(args.out, summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def cmd_validate_goals(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+    records = read_json(args.events)
+    if not isinstance(records, list):
+        raise ValueError(f"Expected events JSON array: {args.events}")
+    events = [Event(**record) for record in records if isinstance(record, dict)]
+    validated = _confirm_goals_for_process(
+        read_detections(args.tracks),
+        events,
+        config.get("analysis", {}),
+    )
+    write_events(args.out, validated)
+    summary = summarize_events(validated)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "goal_candidates": summary["goals"]["total"],
+                "goal_confirmed": summary["goals"]["confirmed"],
+                "confirmed_scoreboard": summary["confirmed_scoreboard"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_team_quality(args: argparse.Namespace) -> None:
+    report = analyze_team_quality_file(
+        args.tracks,
+        unknown_ratio_threshold=args.unknown_ratio_threshold,
+        ambiguous_track_dominance_threshold=args.ambiguous_track_dominance,
+        min_ambiguous_track_samples=args.min_ambiguous_track_samples,
+        min_frame_team_coverage=args.min_frame_team_coverage,
+        max_dominant_team_ratio=args.max_dominant_team_ratio,
+        max_review_candidates=args.max_review_candidates,
+    )
+    write_json(args.out, report)
+    markdown = None
+    if args.report_out:
+        markdown = write_team_quality_markdown(report, args.report_out)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "report": str(markdown) if markdown else None,
+                "summary": report["summary"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def cmd_situation_analysis(args: argparse.Namespace) -> None:
@@ -2617,6 +3558,11 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         freeze_cooldown_frames=args.freeze_cooldown_frames,
         freeze_max_events=args.freeze_max_events,
         freeze_event_types=args.freeze_event_types,
+        mask_overlay=args.mask_overlay,
+        mask_alpha=args.mask_alpha,
+        label_scale=args.label_scale,
+        box_thickness=args.box_thickness,
+        visual_hold_frames=args.visual_hold_frames,
     )
     print(json.dumps({"video": str(out), "style": args.style}, indent=2))
 

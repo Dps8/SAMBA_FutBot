@@ -38,7 +38,6 @@ de fuentes:
 ```text
 config/default.yml          Configuracion principal del pipeline.
 docs/RETO.md                Resumen local de requisitos del reto.
-docs/PROFESSIONAL_STRATEGY.md Estrategia profesional.
 docs/RESULTS.md             Tabla de videos ya procesados.
 src/samba_futbot/           Codigo Python del paquete.
 tests/                      Pruebas unitarias.

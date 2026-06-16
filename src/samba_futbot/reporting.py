@@ -82,10 +82,16 @@ def _events_section(path: str | Path) -> list[str]:
     summary = summarize_events(events)
     counts: dict[str, int] = summary.get("counts", {})
     scoreboard = summary.get("scoreboard", {})
+    confirmed_scoreboard = summary.get("confirmed_scoreboard", {})
     lines = ["## Event Candidates", "", f"- Total events: `{len(events)}`"]
     lines.append(
         "- Candidate score: "
         f"`blue {scoreboard.get('blue', 0)} - {scoreboard.get('yellow', 0)} yellow`"
+    )
+    lines.append(
+        "- Confirmed score: "
+        f"`blue {confirmed_scoreboard.get('blue', 0)} - "
+        f"{confirmed_scoreboard.get('yellow', 0)} yellow`"
     )
     lines.append(
         "- Possession changes: "

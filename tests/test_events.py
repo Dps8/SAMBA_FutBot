@@ -1,6 +1,11 @@
 import unittest
 
-from samba_futbot.events import detect_events, estimate_possession, summarize_events
+from samba_futbot.events import (
+    confirm_goal_candidates,
+    detect_events,
+    estimate_possession,
+    summarize_events,
+)
 from samba_futbot.types import Detection
 
 
@@ -80,6 +85,119 @@ class EventsTest(unittest.TestCase):
         self.assertEqual(goals[0].metadata["goal_side"], "blue")
         self.assertEqual(goals[0].metadata["scoring_team"], "yellow")
 
+    def test_temporal_goal_entry_confirms_candidate(self):
+        detections = [
+            Detection(frame, "field", 1.0, (0, 0, 100, 100))
+            for frame in range(3)
+        ]
+        detections.extend(
+            [
+                Detection(0, "goal_blue", 0.9, (0, 20, 25, 60), track_id=30),
+                Detection(1, "goal_blue", 0.9, (0, 20, 25, 60), track_id=30),
+                Detection(2, "goal_blue", 0.9, (0, 20, 25, 60), track_id=30),
+                Detection(0, "ball", 0.9, (40, 35, 46, 41), track_id=10),
+                Detection(1, "ball", 0.9, (14, 35, 20, 41), track_id=10),
+                Detection(2, "ball", 0.9, (10, 35, 16, 41), track_id=10),
+            ]
+        )
+
+        candidates = detect_events(detections)
+        events = confirm_goal_candidates(detections, candidates)
+        confirmed = [event for event in events if event.event_type == "goal_confirmed"]
+
+        self.assertEqual(len(confirmed), 1)
+        self.assertEqual(confirmed[0].metadata["scoring_team"], "yellow")
+        self.assertEqual(confirmed[0].metadata["inside_frames"], [1, 2])
+
+    def test_inferred_goal_never_confirms_candidate(self):
+        detections = [
+            Detection(frame, "field", 1.0, (0, 0, 100, 100))
+            for frame in range(3)
+        ]
+        detections.extend(
+            [
+                Detection(
+                    frame,
+                    "goal_blue",
+                    0.9,
+                    (0, 20, 25, 60),
+                    track_id=30,
+                    extra={"source": "goal_geometry"},
+                )
+                for frame in range(3)
+            ]
+        )
+        detections.extend(
+            [
+                Detection(0, "ball", 0.9, (40, 35, 46, 41), track_id=10),
+                Detection(1, "ball", 0.9, (14, 35, 20, 41), track_id=10),
+                Detection(2, "ball", 0.9, (10, 35, 16, 41), track_id=10),
+            ]
+        )
+
+        events = confirm_goal_candidates(detections, detect_events(detections))
+
+        self.assertFalse(any(event.event_type == "goal_confirmed" for event in events))
+
+    def test_non_consecutive_goal_presence_does_not_confirm(self):
+        detections = [
+            Detection(frame, "field", 1.0, (0, 0, 100, 100))
+            for frame in range(4)
+        ]
+        detections.extend(
+            [
+                Detection(frame, "goal_blue", 0.9, (0, 20, 25, 60), track_id=30)
+                for frame in range(4)
+            ]
+        )
+        detections.extend(
+            [
+                Detection(0, "ball", 0.9, (40, 35, 46, 41), track_id=10),
+                Detection(1, "ball", 0.9, (14, 35, 20, 41), track_id=10),
+                Detection(2, "ball", 0.9, (40, 35, 46, 41), track_id=10),
+                Detection(3, "ball", 0.9, (10, 35, 16, 41), track_id=10),
+            ]
+        )
+
+        events = confirm_goal_candidates(
+            detections,
+            detect_events(detections),
+            min_inside_frames=2,
+        )
+
+        self.assertFalse(any(event.event_type == "goal_confirmed" for event in events))
+
+    def test_goal_confirmation_is_idempotent(self):
+        detections = [
+            Detection(frame, "field", 1.0, (0, 0, 100, 100))
+            for frame in range(3)
+        ]
+        detections.extend(
+            [
+                Detection(frame, "goal_blue", 0.9, (0, 20, 25, 60), track_id=30)
+                for frame in range(3)
+            ]
+        )
+        detections.extend(
+            [
+                Detection(0, "ball", 0.9, (40, 35, 46, 41), track_id=10),
+                Detection(1, "ball", 0.9, (14, 35, 20, 41), track_id=10),
+                Detection(2, "ball", 0.9, (10, 35, 16, 41), track_id=10),
+            ]
+        )
+
+        once = confirm_goal_candidates(detections, detect_events(detections))
+        twice = confirm_goal_candidates(detections, once)
+
+        self.assertEqual(
+            sum(event.event_type == "goal_confirmed" for event in once),
+            1,
+        )
+        self.assertEqual(
+            sum(event.event_type == "goal_confirmed" for event in twice),
+            1,
+        )
+
     def test_summarize_events_reports_candidate_scoreboard(self):
         events = [
             {
@@ -116,6 +234,7 @@ class EventsTest(unittest.TestCase):
 
         self.assertEqual(summary["scoreboard"]["yellow"], 1)
         self.assertEqual(summary["scoreboard"]["blue"], 0)
+        self.assertEqual(summary["confirmed_scoreboard"], {"blue": 0, "yellow": 0})
         self.assertEqual(summary["goals"]["by_goal_side"]["blue"], 1)
         self.assertEqual(summary["shots"]["by_team"]["blue"], 1)
         self.assertEqual(summary["shots"]["by_target_side"]["left"], 1)

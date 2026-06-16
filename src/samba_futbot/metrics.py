@@ -6,7 +6,7 @@ from statistics import mean, pstdev
 from typing import Iterable
 
 from .events import estimate_possession
-from .play_state import BALL_CLASSES, in_play_balls
+from .play_state import BALL_CLASSES, ROBOT_CLASSES, in_play_balls
 from .types import Detection
 
 
@@ -72,6 +72,7 @@ def summarize_tracks(
         fps=fps,
         possession_radius_px=possession_radius_px,
     )
+    team_assignment = _team_assignment_summary(detections_list)
 
     return {
         "frames_observed": len(frames),
@@ -86,6 +87,7 @@ def summarize_tracks(
         "mask_area_std": pstdev(areas) if len(areas) > 1 else 0.0,
         "motion": motion,
         "possession": possession,
+        "team_assignment": team_assignment,
     }
 
 
@@ -199,6 +201,22 @@ def _possession_summary(
         "dominance": dominance,
         "longest_streak": longest_streak,
         "streaks": streaks[:20],
+    }
+
+
+def _team_assignment_summary(detections: list[Detection]) -> dict:
+    robots = [det for det in detections if det.class_name in ROBOT_CLASSES]
+    by_team: dict[str, int] = defaultdict(int)
+    for robot in robots:
+        by_team[robot.team or "unknown"] += 1
+    assigned = sum(count for team, count in by_team.items() if team != "unknown")
+    return {
+        "robot_samples": len(robots),
+        "assigned_samples": assigned,
+        "unknown_samples": by_team.get("unknown", 0),
+        "coverage_ratio": assigned / len(robots) if robots else 0.0,
+        "unknown_ratio": by_team.get("unknown", 0) / len(robots) if robots else 0.0,
+        "samples_by_team": dict(sorted(by_team.items())),
     }
 
 

@@ -90,8 +90,17 @@ def export_frame_dataset(
                 "box": list(box),
                 "track_id": det.track_id,
                 "team": det.team,
+                "prompt": det.prompt,
+                "area": det.area,
                 "source": det.extra.get("source") if isinstance(det.extra, dict) else None,
             }
+            if det.mask_path:
+                record["mask_path"] = _source_artifact_path(
+                    det.mask_path,
+                    detections_path=Path(detections_path),
+                )
+                if isinstance(det.extra, dict) and det.extra.get("mask_index") is not None:
+                    record["mask_index"] = det.extra["mask_index"]
             if crop:
                 crop_box = clip_box(det.box, width=width, height=height, padding_px=crop_padding_px)
                 crop_path = (
@@ -189,8 +198,20 @@ def merge_frame_dataset_manifests(
     val_ratio: float = 0.10,
 ) -> dict:
     paths = [Path(path) for path in manifest_paths]
+    loaded_manifests = []
+    for path in paths:
+        manifest = read_json(path)
+        if not isinstance(manifest, dict):
+            raise ValueError(f"Expected dataset manifest object: {path}")
+        loaded_manifests.append((path, manifest))
+    source_keys = [
+        _dataset_source_key(path, manifest, image)
+        for path, manifest in loaded_manifests
+        for image in manifest.get("images", [])
+        if isinstance(image, dict)
+    ]
     source_splits = (
-        _balanced_source_splits(paths, train_ratio=train_ratio, val_ratio=val_ratio)
+        _balanced_source_splits(source_keys, train_ratio=train_ratio, val_ratio=val_ratio)
         if split_strategy == "by-source-balanced"
         else {}
     )
@@ -199,18 +220,16 @@ def merge_frame_dataset_manifests(
     class_counts = Counter()
     split_counts = Counter()
     crop_count = 0
-    for path in paths:
-        manifest = read_json(path)
-        if not isinstance(manifest, dict):
-            raise ValueError(f"Expected dataset manifest object: {path}")
+    for path, manifest in loaded_manifests:
         manifests.append(str(path))
         base = path.parent
         for image in manifest.get("images", []):
             if not isinstance(image, dict):
                 continue
             merged_image = dict(image)
-            if path in source_splits:
-                merged_image["split"] = source_splits[path]
+            source_key = _dataset_source_key(path, manifest, image)
+            if source_key in source_splits:
+                merged_image["split"] = source_splits[source_key]
             merged_image["image_path"] = _absolute_dataset_path(
                 str(image.get("image_path", "")),
                 base,
@@ -228,6 +247,11 @@ def merge_frame_dataset_manifests(
                         base,
                     )
                     crop_count += 1
+                if merged_detection.get("mask_path"):
+                    merged_detection["mask_path"] = _absolute_dataset_path(
+                        str(merged_detection["mask_path"]),
+                        base,
+                    )
                 detections.append(merged_detection)
             merged_image["detections"] = detections
             if merged_image.get("crops"):
@@ -242,6 +266,7 @@ def merge_frame_dataset_manifests(
         "sources": manifests,
         "merge": {
             "split_strategy": split_strategy,
+            "split_group": "source_video" if split_strategy == "by-source-balanced" else "preserve",
             "train_ratio": train_ratio,
             "val_ratio": val_ratio,
         },
@@ -305,33 +330,86 @@ def _absolute_dataset_path(path: str, base: Path) -> str:
     return str((base / raw).resolve())
 
 
+def _source_artifact_path(path: str, *, detections_path: Path) -> str:
+    raw = Path(path)
+    if raw.is_absolute():
+        return str(raw.resolve())
+    for candidate in (raw, detections_path.resolve().parent / raw):
+        if candidate.exists():
+            return str(candidate.resolve())
+    return str((detections_path.resolve().parent / raw).resolve())
+
+
 def _balanced_source_splits(
-    paths: list[Path],
+    source_keys: list[str],
     *,
     train_ratio: float,
     val_ratio: float,
-) -> dict[Path, str]:
-    if not paths:
+) -> dict[str, str]:
+    if not source_keys:
         return {}
     if train_ratio <= 0 or train_ratio >= 1:
         raise ValueError("train_ratio must be between 0 and 1")
     if val_ratio < 0 or train_ratio + val_ratio > 1:
         raise ValueError("train_ratio + val_ratio must be 1 or below")
-    ordered = sorted(paths, key=lambda path: path.as_posix())
-    total = len(ordered)
-    train_count = max(1, round(total * train_ratio))
-    val_count = round(total * val_ratio)
-    if total >= 2:
-        val_count = max(1, val_count)
-    if train_count + val_count > total:
-        train_count = max(1, total - val_count)
-    splits = {}
-    for index, path in enumerate(ordered):
-        if index < train_count:
-            split = "train"
-        elif index < train_count + val_count:
-            split = "val"
-        else:
-            split = "test"
-        splits[path] = split
-    return splits
+    counts = Counter(source_keys)
+    total_frames = sum(counts.values())
+    test_ratio = max(0.0, 1.0 - train_ratio - val_ratio)
+    reserve_for_test = 1 if test_ratio > 0 and len(counts) >= 3 else 0
+    val_keys = _select_weighted_groups(
+        counts,
+        target_frames=total_frames * val_ratio,
+        reserve_groups=1 + reserve_for_test,
+    )
+    remaining = Counter({key: count for key, count in counts.items() if key not in val_keys})
+    test_keys = _select_weighted_groups(
+        remaining,
+        target_frames=total_frames * test_ratio,
+        reserve_groups=1,
+    )
+    return {
+        source_key: (
+            "val"
+            if source_key in val_keys
+            else "test"
+            if source_key in test_keys
+            else "train"
+        )
+        for source_key in sorted(counts)
+    }
+
+
+def _select_weighted_groups(
+    counts: Counter,
+    *,
+    target_frames: float,
+    reserve_groups: int,
+) -> set[str]:
+    if target_frames <= 0 or len(counts) <= reserve_groups:
+        return set()
+    selected: set[str] = set()
+    selected_frames = 0
+    candidates = sorted(counts.items(), key=lambda item: (item[1], item[0]))
+    max_selected = max(0, len(candidates) - reserve_groups)
+    for source_key, frame_count in candidates:
+        if len(selected) >= max_selected:
+            break
+        current_error = abs(target_frames - selected_frames)
+        next_error = abs(target_frames - (selected_frames + frame_count))
+        if next_error <= current_error or not selected:
+            selected.add(source_key)
+            selected_frames += frame_count
+        if selected_frames == target_frames:
+            break
+    return selected
+
+
+def _dataset_source_key(path: Path, manifest: dict, image: dict) -> str:
+    source = (
+        image.get("video")
+        or image.get("source_video")
+        or image.get("source")
+        or manifest.get("source_video")
+        or path
+    )
+    return str(source).replace("\\", "/").casefold()

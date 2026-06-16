@@ -53,11 +53,91 @@ track variants through game-state filtering, metrics, event detection and
 | `IMG_9938_f001799_10s-top-fusion-hsv-v2-refined` | 94.0% | review / 90 | ball_tracking, shot_pressure |
 | `IMG_9938_f001799_10s-top-fusion-hsv-v3-minarea` | 72.7% | review / 80 | ball_tracking, shot_pressure |
 
-The same batch rendered 8 presentation videos: narrative and analysis-freeze
-outputs for the four strongest variants, plus QA frames for quick review. The
+The same batch currently contains 12 presentation videos: narrative and
+analysis-freeze outputs for the strongest variants, plus QA frames for quick
+review. It also has a generated submission evidence report at
+`outputs/review/2026-06-08/SUBMISSION_EVIDENCE.md`, which links the selected
+showcase clips, QA status and dataset preparation in one Markdown artifact. The
 batch also produced a merged top-camera training manifest with 320 frames and
-800 detections/crops (`259` ball and `541` robot samples), exported to COCO and
-kept in a source-balanced `240` train / `80` validation split.
+800 detections/crops (`259` ball and `541` robot samples). A deeper June 14
+audit found `80` duplicate source-frame groups: two processing variants of
+`IMG_9938` contained the same 80 video frames under different image paths.
+The new `curate-dataset` pass kept the strongest variant per source frame and
+produced 240 unique frames with 614 detections/crops (`231` ball and `383`
+robot samples), split as `160` train / `80` validation. The post-curation
+quality report found `0` invalid boxes, `0` detections below `0.60`, `0` videos
+shared between splits, `0` duplicate image paths and `0` duplicate
+source-frames.
+
+A mask-preserving export was then generated directly from the existing SAM3
+tracks. The dense multi-video manifest contains `605` unique frames and `1,486`
+mask annotations (`1,452` robots and `34` ball), with `485` train and `120`
+validation frames. COCO segmentation export completed with `1,486/1,486`
+masks and `0` failures. Because this pool is strongly robot-heavy, a separate
+ball-review candidate set was also exported from `IMG_9933_f008995`: `124`
+frames, `124` ball masks and `124/124` successful COCO RLE exports at score
+`>=0.50`. It remains a single-video pseudo-label pool and must be reviewed or
+combined with independent ball annotations before a final adaptation claim.
+
+The first independent human holdout template contains `24` validation frames
+from one held-out source video. It copies no pseudo detections, leaves every
+annotation `pending`, and is frozen by SHA-256
+`9fc753bc4b6ecadd2f49855e90b40188360b215ea4b4dd22a64ae44eb8adfba9`.
+This is enough to start manual labeling, but broader camera/video coverage is
+still desirable for a final benchmark.
+
+## SAM3 Head Adaptation
+
+On June 15, 2026, the first official-SAM3 adaptation completed on the remote
+RTX 5080 using the repository's portable COCO-RLE export. Full 840 M-parameter
+AdamW training exceeded the 16 GB memory budget when optimizer states were
+created, so the successful run trained approximately 3.5 M segmentation and
+prompt-scoring head parameters while freezing approximately 837 M backbone
+parameters.
+
+The reproducible run used 3 epochs, 64 train datapoints, 64 validation
+datapoints and 1008-pixel inputs. Re-evaluation against only the 64 image IDs
+actually inferred produced:
+
+| Metric | SAM3 baseline | Adapted | Relative change |
+|---|---:|---:|---:|
+| Overall mask AP | 0.2364 | 0.3043 | +28.8% |
+| Overall mask AP50 | 0.2589 | 0.3400 | +31.3% |
+| Robot mask AP | 0.4625 | 0.5979 | +29.3% |
+| Ball mask AP | 0.0102 | 0.0108 | +6.2% |
+| Small-object AP | 0.0128 | 0.0109 | -14.7% |
+
+The result validates the training/configuration/checkpoint path and gives a
+meaningful robot improvement. It does not yet justify claiming robust learned
+ball segmentation: the ball subset remains small and imbalanced, and
+small-object quality must improve before promotion to the main video pipeline.
+
+A follow-up mixed-class run centered training on all 124 ball-positive images
+plus 124 images without a ball annotation, while retaining the robot masks.
+Against the full 128-image validation set, overall AP improved from 0.2299 to
+0.3586 (+56.0%) and robot AP improved from 0.4496 to 0.7068 (+57.2%). Ball AP
+only moved from 0.0101 to 0.0103 (+2.0%), and ball small-object AP fell from
+0.0592 to 0.0468 (-20.9%). This is the current strongest robot checkpoint, not
+a promoted ball checkpoint.
+
+A separate ball-only specialist was also tested and rejected. Its ball AP fell
+from 0.0099 to 0.0052 (-46.8%), and ball small-object AP fell from 0.0587 to
+0.0044 (-92.5%). The experiment demonstrates that missing pseudo-labels cannot
+be treated as trustworthy negative examples. The next ball adaptation requires
+manual mask review, verified absence labels and another original recording with
+different ball scale and occlusion conditions.
+
+The follow-up data-preparation step generated human-review packages for the
+ball bottleneck. The dense package contains 40 `verify_mask` frames and 40
+`verify_absence` frames, with contact sheets under
+`outputs/review/2026-06-15/ball_review`. These are review artifacts, not final
+training labels.
+
+The QA comparison tool was tested on `IMG_9938` using the `top-fusion-hsv-v1`
+run as baseline and `top-fusion-hsv-v3-minarea` as candidate. It classified the
+candidate as `regressed`: quality score dropped from `90` to `80`, ball
+coverage from `94.0%` to `72.7%`, field coverage from `100.0%` to `82.0%`, and
+robot coverage from `40.0%` to `22.0%`.
 
 `video-680` has an unrealistic max ball speed, which flags a likely ball-track
 jump. This is useful as an automatic QA signal for track fragmentation.
@@ -72,6 +152,12 @@ team-color assignments are visible before opening the videos.
 QA also checks the ratio of robot samples that remain `unknown` after team
 assignment, so possession-by-team and tactical claims are flagged when color
 classification is not reliable enough.
+The standalone `team-quality` audit additionally detects temporal label changes,
+ambiguous tracks and assignments collapsed toward one color. On the historical
+`IMG_9938` refined tracks, the original file had 324 robot samples with no team
+evidence. Reassigning colors classified 323 as blue and 1 as yellow; the new
+dominant-team check correctly flags that `99.7%` concentration for review
+instead of treating full assignment coverage as trustworthy.
 Run Markdown reports can now include the QA JSON directly, so a single report
 contains tracking metrics, events, field analysis and quality gates.
 QA now also emits `claim_readiness`, a compact evidence matrix that marks
@@ -118,7 +204,14 @@ dark pixels, reducing contamination from field/background inside wide boxes.
 Metrics include possession coverage, possession by team and longest possession streaks. Event detection can also report
 `goal_candidate` events when visual `goal_blue` or `goal_yellow` detections are
 available; metric goal claims should still be validated with calibrated
-homography before final presentation.
+homography before final presentation. QA therefore keeps `goal_scoring` in
+review for candidate-only events and only marks it ready for an explicit
+`goal_confirmed` event. Confirmation now requires a non-inferred goal detection,
+a tracked ball entering from outside with measurable motion toward the goal,
+and persistence inside the goal across multiple frames.
+Applying the validator to the 14 existing June 8 top-camera runs found zero
+goal candidates and therefore zero confirmed goals; a real goal sequence is
+still needed for visual end-to-end validation.
 Possession metrics also expose a dominant team with frame and ratio margin,
 which gives a compact game-control signal for reports.
 Shot candidates now require the ball to move toward the left/right goal side,
@@ -208,6 +301,17 @@ with 100% in-play ball coverage but low robot coverage. This supports a
 two-stage strategy: first recover ball/robots/field in short windows, then add
 goal evidence through color, seeds or field geometry.
 
+The June 16 top-camera refresh reprocessed the final review clips on the remote
+GPU with the current no-YOLO pipeline: SAM3 contextual prompts, orange-ball
+color fallback, blue/yellow goal color geometry, dark-robot recovery,
+semi-transparent overlays and label-collision avoidance. The two `IMG_9933`
+clips reached QA `good` with 100% ball coverage and are the strongest current
+ball-tracking examples. `IMG_9938_f001799_10s` remains QA `review` because ball
+coverage is 68.3%, but its analysis render is still useful for shot-pressure
+and pause-overlay demonstration. The latest videos are under
+`outputs/review/2026-06-16/final_top_camera_robot_recovery_batch_v4/videos/`
+and `outputs/review/2026-06-16/final_top_camera_robot_recovery_v2/videos/`.
+
 The next tactical layer is implemented as an optional homography analysis:
 `samba-futbot field-analysis` or `process-top-camera --field-calibration`.
 Given four calibrated field corners, it converts in-play ball centroids from
@@ -218,9 +322,11 @@ screen-space pixels. The default field template now follows the official
 FutBotMX field dimensions, `2.43 m x 1.82 m`, with official center-circle,
 penalty-area and goal markings. Final metric claims still require replacing the
 template image points with calibrated corners from each real top-camera setup.
-Calibration can now be checked separately with `samba-futbot calibration-check`;
-the check reports reprojection error, image polygon area and calibration points
-outside the frame so metric claims can be marked as calibrated or template-only.
+Calibration can now be checked separately with `samba-futbot calibration-check`.
+In addition to reprojection error and points outside the frame, the check
+validates corner order, convexity, frame coverage, edge ratios, compressed
+angles and polygon skew. This prevents a four-point homography from passing
+only because it is evaluated on the same points used to fit it.
 Robot field projection also reports samples by team, zone samples by team,
 penalty-area samples by team and defensive/middle/attacking thirds relative to
 each team's defended side. It also derives an attacking-pressure ratio per team,

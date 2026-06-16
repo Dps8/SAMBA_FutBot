@@ -189,6 +189,39 @@ def _summary(metrics: dict[str, Any], events: list[Any], field: dict[str, Any]) 
     )
     robot_sample_total = sum(int(_number(value)) for value in robot_samples_by_team.values())
     unknown_team_samples = int(_number(robot_samples_by_team.get("unknown")))
+    team_assignment = (
+        metrics.get("team_assignment", {})
+        if isinstance(metrics.get("team_assignment", {}), dict)
+        else {}
+    )
+    possession_by_team = (
+        metrics.get("possession", {}).get("by_team", {})
+        if isinstance(metrics.get("possession", {}), dict)
+        and isinstance(metrics.get("possession", {}).get("by_team", {}), dict)
+        else {}
+    )
+    fallback_team_samples = {
+        str(team): int(_number(values.get("frames", 0)))
+        for team, values in possession_by_team.items()
+        if isinstance(values, dict)
+    }
+    team_assignment_samples = int(
+        _number(team_assignment.get("robot_samples", robot_sample_total))
+    )
+    team_assigned_samples = int(
+        _number(
+            team_assignment.get(
+                "assigned_samples",
+                max(0, robot_sample_total - unknown_team_samples),
+            )
+        )
+    )
+    if team_assignment_samples == 0 and fallback_team_samples:
+        team_assignment_samples = sum(fallback_team_samples.values())
+        team_assigned_samples = sum(
+            count for team, count in fallback_team_samples.items() if team != "unknown"
+        )
+        unknown_team_samples = fallback_team_samples.get("unknown", 0)
     path_samples = _number(field_summary.get("path_samples"))
     out_of_bounds = _number(field_summary.get("ball_out_of_bounds_samples"))
     event_counts: dict[str, int] = {}
@@ -218,8 +251,10 @@ def _summary(metrics: dict[str, Any], events: list[Any], field: dict[str, Any]) 
         "robot_penalty_area_samples": int(_number(robot_summary.get("penalty_area_samples"))),
         "robot_samples_by_team": robot_samples_by_team,
         "unknown_team_ratio": (
-            unknown_team_samples / robot_sample_total if robot_sample_total else 0.0
+            unknown_team_samples / team_assignment_samples if team_assignment_samples else 0.0
         ),
+        "team_assignment_samples": team_assignment_samples,
+        "team_assigned_samples": team_assigned_samples,
         "possession_coverage_ratio": _number(
             metrics.get("possession", {}).get("coverage_ratio", 0.0)
             if isinstance(metrics.get("possession", {}), dict)
@@ -246,10 +281,13 @@ def _claim_readiness(summary: dict[str, Any], limits: dict[str, float]) -> dict:
         and summary["ball_out_of_bounds_ratio"] <= limits["max_out_of_bounds_ratio"]
     )
     teams_ok = (
-        summary["unknown_team_ratio"] <= limits["max_unknown_team_ratio"]
+        summary["team_assignment_samples"] > 0
+        and summary["team_assigned_samples"] > 0
+        and summary["unknown_team_ratio"] <= limits["max_unknown_team_ratio"]
         and summary["possession_coverage_ratio"] >= limits["min_possession_coverage"]
     )
-    goals = int(summary.get("event_counts", {}).get("goal_candidate", 0))
+    goal_candidates = int(summary.get("event_counts", {}).get("goal_candidate", 0))
+    confirmed_goals = int(summary.get("event_counts", {}).get("goal_confirmed", 0))
     shots = int(summary.get("event_counts", {}).get("shot", 0))
     return {
         "ball_tracking": _claim(
@@ -268,9 +306,13 @@ def _claim_readiness(summary: dict[str, Any], limits: dict[str, float]) -> dict:
             "team assignment or possession coverage is not strong enough yet",
         ),
         "goal_scoring": _claim(
-            goals > 0,
-            f"{goals} goal candidate events were detected",
-            "no goal candidate events were detected in this run",
+            confirmed_goals > 0,
+            f"{confirmed_goals} confirmed goal events were detected",
+            (
+                f"{goal_candidates} goal candidate events need validation"
+                if goal_candidates
+                else "no goal candidate events were detected in this run"
+            ),
         ),
         "shot_pressure": _claim(
             shots > 0,
@@ -354,15 +396,39 @@ def _issues(summary: dict[str, Any], limits: dict[str, float]) -> list[dict]:
                 0,
             )
         )
-    _upper_issue(
-        issues,
-        code="unknown_robot_teams",
-        label="Unknown-team robot ratio",
-        value=summary["unknown_team_ratio"],
-        warn_limit=limits["max_unknown_team_ratio"],
-        fail_limit=limits["fail_unknown_team_ratio"],
-        unit="ratio",
-    )
+    if summary["team_assignment_samples"] <= 0:
+        issues.append(
+            _issue(
+                "warning",
+                "missing_team_evidence",
+                "No robot team-assignment samples are available.",
+                0,
+                1,
+            )
+        )
+    else:
+        _upper_issue(
+            issues,
+            code="unknown_robot_teams",
+            label="Unknown-team robot ratio",
+            value=summary["unknown_team_ratio"],
+            warn_limit=limits["max_unknown_team_ratio"],
+            fail_limit=limits["fail_unknown_team_ratio"],
+            unit="ratio",
+        )
+    goal_candidates = int(summary.get("event_counts", {}).get("goal_candidate", 0))
+    confirmed_goals = int(summary.get("event_counts", {}).get("goal_confirmed", 0))
+    unconfirmed_goals = max(0, goal_candidates - confirmed_goals)
+    if unconfirmed_goals:
+        issues.append(
+            _issue(
+                "warning",
+                "unconfirmed_goal_candidates",
+                f"{unconfirmed_goals} goal candidate events still require temporal validation.",
+                unconfirmed_goals,
+                0,
+            )
+        )
     return issues
 
 

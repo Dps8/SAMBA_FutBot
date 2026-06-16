@@ -153,10 +153,91 @@ def detect_events(
     return events
 
 
+def confirm_goal_candidates(
+    detections: Iterable[Detection],
+    events: Iterable[Event],
+    *,
+    lookback_frames: int = 8,
+    confirmation_frames: int = 4,
+    min_inside_frames: int = 2,
+    min_entry_motion_px: float = 3.0,
+    min_goal_score: float = 0.45,
+) -> list[Event]:
+    """Promote goal candidates only when temporal entry evidence is strong."""
+    detections_list = list(detections)
+    frames = group_by_frame(detections_list)
+    events_list = list(events)
+    confirmed: list[Event] = []
+    existing_confirmations = {
+        (
+            int(event.metadata.get("candidate_frame", event.frame_index)),
+            str(event.metadata.get("goal_side", "unknown")),
+        )
+        for event in events_list
+        if event.event_type == "goal_confirmed"
+    }
+
+    for candidate in events_list:
+        if candidate.event_type != "goal_candidate":
+            continue
+        side = str(candidate.metadata.get("goal_side", "unknown"))
+        frame_index = candidate.frame_index
+        if (frame_index, side) in existing_confirmations:
+            continue
+        goal = _goal_for_candidate(frames.get(frame_index, []), side)
+        ball = _ball_for_candidate(frames.get(frame_index, []), candidate)
+        if not goal or not ball:
+            continue
+        if goal.score < min_goal_score or goal.extra.get("source") == "goal_geometry":
+            continue
+        previous = _previous_ball(
+            frames,
+            ball,
+            frame_index=frame_index,
+            lookback_frames=lookback_frames,
+        )
+        if not previous or _ball_inside_goal(previous, goal):
+            continue
+        entry_motion = distance(previous.centroid, ball.centroid)
+        if entry_motion < min_entry_motion_px:
+            continue
+        if distance(ball.centroid, goal.centroid) >= distance(previous.centroid, goal.centroid):
+            continue
+        inside_frames = _inside_goal_frames(
+            frames,
+            ball,
+            goal,
+            start_frame=frame_index,
+            confirmation_frames=confirmation_frames,
+        )
+        if len(inside_frames) < min_inside_frames:
+            continue
+        confirmed.append(
+            Event(
+                frame_index=frame_index,
+                event_type="goal_confirmed",
+                description=f"Gol confirmado en porteria {side}",
+                confidence=min(0.95, max(0.7, candidate.confidence + 0.2)),
+                actors=list(candidate.actors),
+                metadata={
+                    **candidate.metadata,
+                    "candidate_frame": frame_index,
+                    "previous_ball_frame": previous.frame_index,
+                    "entry_motion_px": round(entry_motion, 6),
+                    "inside_frames": inside_frames,
+                    "validation": "temporal_goal_entry",
+                },
+            )
+        )
+        existing_confirmations.add((frame_index, side))
+    return sorted(events_list + confirmed, key=lambda event: (event.frame_index, event.event_type))
+
+
 def summarize_events(events: Iterable[Event | dict]) -> dict:
     records = [_event_record(event) for event in events]
     counts: dict[str, int] = {}
     scoreboard: dict[str, int] = {}
+    confirmed_scoreboard: dict[str, int] = {}
     goals_by_side: dict[str, int] = {}
     shots_by_team: dict[str, int] = {}
     shots_by_target_side: dict[str, int] = {}
@@ -176,12 +257,22 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
             goal_side = str(metadata.get("goal_side", "unknown"))
             scoreboard[scoring_team] = scoreboard.get(scoring_team, 0) + 1
             goals_by_side[goal_side] = goals_by_side.get(goal_side, 0) + 1
+        if event_type == "goal_confirmed":
+            scoring_team = str(metadata.get("scoring_team", "unknown"))
+            confirmed_scoreboard[scoring_team] = confirmed_scoreboard.get(scoring_team, 0) + 1
         if event_type == "shot":
             shooting_team = str(metadata.get("shooting_team", "unknown"))
             target_side = str(metadata.get("target_side", "unknown"))
             shots_by_team[shooting_team] = shots_by_team.get(shooting_team, 0) + 1
             shots_by_target_side[target_side] = shots_by_target_side.get(target_side, 0) + 1
-        if event_type in {"goal_candidate", "shot", "pass", "interception", "collision"}:
+        if event_type in {
+            "goal_candidate",
+            "goal_confirmed",
+            "shot",
+            "pass",
+            "interception",
+            "collision",
+        }:
             timeline.append(
                 {
                     "frame_index": frame_index,
@@ -201,8 +292,13 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
             team: scoreboard.get(team, 0)
             for team in sorted(set(scoreboard) | {"blue", "yellow"})
         },
+        "confirmed_scoreboard": {
+            team: confirmed_scoreboard.get(team, 0)
+            for team in sorted(set(confirmed_scoreboard) | {"blue", "yellow"})
+        },
         "goals": {
             "total": counts.get("goal_candidate", 0),
+            "confirmed": counts.get("goal_confirmed", 0),
             "by_goal_side": dict(sorted(goals_by_side.items())),
         },
         "shots": {
@@ -230,6 +326,61 @@ def _ball_inside_goal(ball: Detection, goal: Detection) -> bool:
     x1, y1, x2, y2 = goal.box
     margin = max(8.0, (ball.box[2] - ball.box[0]) * 0.5)
     return (x1 - margin) <= x <= (x2 + margin) and (y1 - margin) <= y <= (y2 + margin)
+
+
+def _goal_for_candidate(frame_detections: list[Detection], side: str) -> Detection | None:
+    candidates = [
+        det
+        for det in frame_detections
+        if det.class_name in GOAL_CLASSES and _goal_side_from_class(det.class_name) == side
+    ]
+    return max(candidates, key=lambda det: det.score) if candidates else None
+
+
+def _ball_for_candidate(
+    frame_detections: list[Detection],
+    candidate: Event,
+) -> Detection | None:
+    actor_ids = set(candidate.actors)
+    balls = [det for det in frame_detections if det.class_name in BALL_CLASSES]
+    matching = [det for det in balls if det.track_id in actor_ids]
+    pool = matching or balls
+    return max(pool, key=lambda det: det.score) if pool else None
+
+
+def _previous_ball(
+    frames: dict[int, list[Detection]],
+    ball: Detection,
+    *,
+    frame_index: int,
+    lookback_frames: int,
+) -> Detection | None:
+    for previous_frame in range(frame_index - 1, max(-1, frame_index - lookback_frames - 1), -1):
+        balls = [det for det in frames.get(previous_frame, []) if det.class_name in BALL_CLASSES]
+        if ball.track_id is not None:
+            balls = [det for det in balls if det.track_id == ball.track_id]
+        if balls:
+            return max(balls, key=lambda det: det.score)
+    return None
+
+
+def _inside_goal_frames(
+    frames: dict[int, list[Detection]],
+    ball: Detection,
+    goal: Detection,
+    *,
+    start_frame: int,
+    confirmation_frames: int,
+) -> list[int]:
+    inside = []
+    for frame_index in range(start_frame, start_frame + confirmation_frames + 1):
+        balls = [det for det in frames.get(frame_index, []) if det.class_name in BALL_CLASSES]
+        if ball.track_id is not None:
+            balls = [det for det in balls if det.track_id == ball.track_id]
+        if not any(_ball_inside_goal(item, goal) for item in balls):
+            break
+        inside.append(frame_index)
+    return inside
 
 
 def _goal_side_from_class(class_name: str) -> str:

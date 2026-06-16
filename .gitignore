@@ -16,6 +16,7 @@ outputs/*
 !outputs/videos/.gitkeep
 !outputs/reports/.gitkeep
 !outputs/qa/
+outputs/qa/*
 !outputs/qa/.gitkeep
 
 # Large media and model files

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from samba_futbot.io_utils import write_json
+from samba_futbot.io_utils import read_json, write_json
 from samba_futbot.qa import (
     collect_quality_reports,
     evaluate_run_quality,
@@ -83,6 +83,81 @@ class RunQaTest(unittest.TestCase):
         self.assertEqual(report["status"], "fail")
         self.assertEqual(report["summary"]["unknown_team_ratio"], 0.8)
         self.assertIn("unknown_robot_teams", {issue["code"] for issue in report["issues"]})
+
+    def test_missing_team_samples_cannot_enable_team_possession_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            metrics, events, field = _write_inputs(
+                tmp_path,
+                ball_coverage=0.92,
+                max_jump=12.0,
+                out_of_bounds=0,
+                path_samples=100,
+                robot_samples_by_team={},
+                possession_coverage=0.5,
+            )
+            metrics_data = read_json(metrics)
+            metrics_data["possession"]["by_team"] = {}
+            write_json(metrics, metrics_data)
+
+            report = evaluate_run_quality(
+                metrics_path=metrics,
+                events_path=events,
+                field_analysis_path=field,
+            )
+
+        self.assertEqual(report["summary"]["team_assignment_samples"], 0)
+        self.assertEqual(report["claim_readiness"]["team_possession"]["status"], "review")
+        self.assertIn("missing_team_evidence", {issue["code"] for issue in report["issues"]})
+
+    def test_goal_candidate_requires_validation_before_scoring_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            metrics, events, field = _write_inputs(
+                tmp_path,
+                ball_coverage=0.92,
+                max_jump=12.0,
+                out_of_bounds=0,
+                path_samples=100,
+            )
+            write_json(events, [{"event_type": "goal_candidate"}])
+
+            report = evaluate_run_quality(
+                metrics_path=metrics,
+                events_path=events,
+                field_analysis_path=field,
+            )
+
+        claim = report["claim_readiness"]["goal_scoring"]
+        self.assertEqual(claim["status"], "review")
+        self.assertIn("need validation", claim["reason"])
+        self.assertEqual(report["status"], "review")
+        self.assertIn(
+            "unconfirmed_goal_candidates",
+            {issue["code"] for issue in report["issues"]},
+        )
+
+    def test_confirmed_goal_enables_scoring_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            metrics, events, field = _write_inputs(
+                tmp_path,
+                ball_coverage=0.92,
+                max_jump=12.0,
+                out_of_bounds=0,
+                path_samples=100,
+            )
+            write_json(events, [{"event_type": "goal_confirmed"}])
+
+            report = evaluate_run_quality(
+                metrics_path=metrics,
+                events_path=events,
+                field_analysis_path=field,
+            )
+
+        claim = report["claim_readiness"]["goal_scoring"]
+        self.assertEqual(claim["status"], "ready")
+        self.assertIn("confirmed goal", claim["reason"])
 
     def test_markdown_report_lists_status_and_events(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -214,7 +289,11 @@ def _write_inputs(
             },
             "robot_summary": {
                 "penalty_area_samples": 0,
-                "samples_by_team": robot_samples_by_team or {"blue": 5, "yellow": 5},
+                "samples_by_team": (
+                    robot_samples_by_team
+                    if robot_samples_by_team is not None
+                    else {"blue": 5, "yellow": 5}
+                ),
             },
         },
     )

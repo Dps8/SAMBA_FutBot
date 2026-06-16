@@ -61,6 +61,7 @@ class DatasetExportTest(unittest.TestCase):
             root = Path(tmp)
             video = root / "clip.mp4"
             detections = root / "detections.jsonl"
+            masks = root / "masks.npz"
             out_dir = root / "dataset"
             writer = cv2.VideoWriter(
                 str(video),
@@ -72,10 +73,22 @@ class DatasetExportTest(unittest.TestCase):
                 frame = np.full((48, 64, 3), 40 + index * 40, dtype=np.uint8)
                 writer.write(frame)
             writer.release()
+            np.savez_compressed(masks, masks=np.ones((1, 48, 64), dtype=np.uint8))
             write_detections(
                 detections,
                 [
-                    Detection(0, "robots", 0.92, (5, 6, 25, 30), track_id=1, team="blue"),
+                    Detection(
+                        0,
+                        "robots",
+                        0.92,
+                        (5, 6, 25, 30),
+                        prompt="robot",
+                        track_id=1,
+                        team="blue",
+                        mask_path=str(masks),
+                        area=480.0,
+                        extra={"mask_index": 0, "source": "sam3"},
+                    ),
                     Detection(1, "ball", 0.91, (30, 20, 36, 26)),
                     Detection(2, "robots", 0.20, (5, 6, 25, 30)),
                 ],
@@ -92,6 +105,11 @@ class DatasetExportTest(unittest.TestCase):
             saved = read_json(out_dir / "manifest.json")
             self.assertTrue((out_dir / saved["images"][0]["image_path"]).exists())
             self.assertTrue((out_dir / saved["images"][0]["detections"][0]["crop_path"]).exists())
+            robot = saved["images"][0]["detections"][0]
+            self.assertEqual(robot["mask_path"], str(masks.resolve()))
+            self.assertEqual(robot["mask_index"], 0)
+            self.assertEqual(robot["prompt"], "robot")
+            self.assertEqual(robot["area"], 480.0)
 
         self.assertEqual(manifest["summary"]["frames"], 2)
         self.assertEqual(saved["summary"]["detections_by_class"], {"ball": 1, "robots": 1})
@@ -119,16 +137,59 @@ class DatasetExportTest(unittest.TestCase):
         self.assertEqual(saved["summary"]["detections_by_class"], {"ball": 1, "robots": 1})
         self.assertEqual(saved["summary"]["frames_by_split"], {"train": 1, "val": 1})
         self.assertEqual(saved["merge"]["split_strategy"], "by-source-balanced")
+        self.assertEqual(saved["merge"]["split_group"], "source_video")
         self.assertTrue(Path(saved["images"][0]["image_path"]).is_absolute())
         self.assertTrue(Path(saved["images"][0]["detections"][0]["crop_path"]).is_absolute())
+        self.assertTrue(Path(saved["images"][0]["detections"][0]["mask_path"]).is_absolute())
+
+    def test_balanced_merge_keeps_variants_of_same_video_in_one_split(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "variant-a" / "manifest.json"
+            second = root / "variant-b" / "manifest.json"
+            third = root / "other" / "manifest.json"
+            out = root / "merged" / "manifest.json"
+            write_json(
+                first,
+                _dataset_manifest("frames/a.jpg", "crops/a.jpg", "train", "ball", "clip-a.mp4"),
+            )
+            write_json(
+                second,
+                _dataset_manifest("frames/b.jpg", "crops/b.jpg", "val", "ball", "clip-a.mp4"),
+            )
+            write_json(
+                third,
+                _dataset_manifest("frames/c.jpg", "crops/c.jpg", "val", "robots", "clip-b.mp4"),
+            )
+
+            merged = merge_frame_dataset_manifests(
+                [first, second, third],
+                out,
+                split_strategy="by-source-balanced",
+                train_ratio=0.5,
+                val_ratio=0.5,
+            )
+
+        splits_by_video = {}
+        for image in merged["images"]:
+            splits_by_video.setdefault(image["video"], set()).add(image["split"])
+        self.assertEqual(splits_by_video["clip-a.mp4"], {"train"})
+        self.assertEqual(splits_by_video["clip-b.mp4"], {"val"})
 
 
-def _dataset_manifest(image_path: str, crop_path: str, split: str, class_name: str) -> dict:
+def _dataset_manifest(
+    image_path: str,
+    crop_path: str,
+    split: str,
+    class_name: str,
+    video: str | None = None,
+) -> dict:
     return {
         "schema": "samba_futbot.frame_dataset.v1",
         "summary": {},
         "images": [
             {
+                **({"video": video} if video else {}),
                 "image_path": image_path,
                 "width": 100,
                 "height": 100,
@@ -139,6 +200,8 @@ def _dataset_manifest(image_path: str, crop_path: str, split: str, class_name: s
                         "score": 0.9,
                         "box": [10, 10, 20, 20],
                         "crop_path": crop_path,
+                        "mask_path": "masks/sample.npz",
+                        "mask_index": 0,
                     }
                 ],
                 "crops": [crop_path],

@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 from samba_futbot.cli import (
     _context_classes,
+    _filtered_prompts,
     _frame_anchors,
     _git_snapshot,
     _game_state_summary,
@@ -36,13 +37,24 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.ball_threshold, 0.05)
         self.assertEqual(args.orange_min_area, 300.0)
         self.assertEqual(args.orange_max_per_frame, 6)
+        self.assertFalse(args.robot_color_recovery)
+        self.assertEqual(args.robot_recovery_min_area, 800.0)
+        self.assertEqual(args.robot_recovery_min_circularity, 0.30)
+        self.assertIsNone(args.robot_filter)
+        self.assertIsNone(args.robot_filter_max_per_frame)
         self.assertEqual(args.refine_max_jump_px, 35.0)
         self.assertTrue(args.goals)
+        self.assertIsNone(args.human_context)
         self.assertTrue(args.qa)
         self.assertTrue(args.render_narrative)
         self.assertTrue(args.render_analysis)
         self.assertFalse(args.analysis_freeze)
-        self.assertEqual(args.freeze_seconds, 1.5)
+        self.assertEqual(args.freeze_seconds, 3.0)
+        self.assertTrue(args.mask_overlay)
+        self.assertEqual(args.mask_alpha, 0.35)
+        self.assertEqual(args.label_scale, 0.75)
+        self.assertEqual(args.box_thickness, 3)
+        self.assertEqual(args.visual_hold_frames, 12)
         self.assertTrue(args.generate_game_state)
         self.assertTrue(args.filter_by_game_state)
         self.assertEqual(args.game_state_missing_ball_frames, 12)
@@ -65,6 +77,66 @@ class CliHelpersTest(unittest.TestCase):
         self.assertIsNone(args.color_ball)
         self.assertEqual(args.ball_color_profile, "white")
         self.assertEqual(args.ball_hsv_lower, "0,0,170")
+
+    def test_process_top_camera_parses_robot_color_recovery_settings(self):
+        args = build_parser().parse_args(
+            [
+                "process-top-camera",
+                "--video",
+                "clip.mp4",
+                "--robot-color-recovery",
+                "--robot-recovery-min-area",
+                "900",
+                "--robot-recovery-min-circularity",
+                "0.35",
+                "--robot-recovery-hsv-upper",
+                "179,255,120",
+                "--robot-recovery-min-center-y-ratio",
+                "0.38",
+                "--robot-recovery-merge-distance-px",
+                "42",
+                "--robot-recovery-max-per-frame",
+                "4",
+            ]
+        )
+
+        self.assertTrue(args.robot_color_recovery)
+        self.assertEqual(args.robot_recovery_min_area, 900)
+        self.assertEqual(args.robot_recovery_min_circularity, 0.35)
+        self.assertEqual(args.robot_recovery_hsv_upper, "179,255,120")
+        self.assertEqual(args.robot_recovery_min_center_y_ratio, 0.38)
+        self.assertEqual(args.robot_recovery_merge_distance_px, 42)
+        self.assertEqual(args.robot_recovery_max_per_frame, 4)
+
+    def test_process_top_camera_parses_robot_filter_settings(self):
+        args = build_parser().parse_args(
+            [
+                "process-top-camera",
+                "--video",
+                "clip.mp4",
+                "--no-robot-filter",
+                "--robot-filter-max-per-frame",
+                "2",
+                "--robot-filter-min-area",
+                "500",
+                "--robot-filter-max-area-ratio",
+                "0.07",
+                "--robot-filter-containment-threshold",
+                "0.8",
+                "--robot-filter-iou-threshold",
+                "0.5",
+                "--robot-filter-min-center-distance-px",
+                "30",
+            ]
+        )
+
+        self.assertFalse(args.robot_filter)
+        self.assertEqual(args.robot_filter_max_per_frame, 2)
+        self.assertEqual(args.robot_filter_min_area, 500)
+        self.assertEqual(args.robot_filter_max_area_ratio, 0.07)
+        self.assertEqual(args.robot_filter_containment_threshold, 0.8)
+        self.assertEqual(args.robot_filter_iou_threshold, 0.5)
+        self.assertEqual(args.robot_filter_min_center_distance_px, 30)
 
     def test_process_top_camera_can_disable_qa(self):
         args = build_parser().parse_args(
@@ -139,6 +211,51 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(_context_classes(no_goals), "field,robots")
         self.assertIsNone(with_goals.color_goals)
 
+    def test_context_classes_include_configured_human_intervention_classes(self):
+        args = build_parser().parse_args(["process-top-camera", "--video", "clip.mp4"])
+        config = {
+            "human_detection": {
+                "enabled": True,
+                "classes": ["person", "referee", "hand", "person"],
+            }
+        }
+
+        self.assertEqual(
+            _context_classes(args, config),
+            "field,robots,goal_blue,goal_yellow,person,referee,hand",
+        )
+
+    def test_context_classes_can_enable_human_context_per_run(self):
+        args = build_parser().parse_args(
+            ["process-top-camera", "--video", "clip.mp4", "--human-context"]
+        )
+        config = {
+            "human_detection": {
+                "enabled": False,
+                "classes": ["person", "referee", "hand"],
+            }
+        }
+
+        self.assertEqual(
+            _context_classes(args, config),
+            "field,robots,goal_blue,goal_yellow,person,referee,hand",
+        )
+
+    def test_filtered_prompts_limits_each_class_without_losing_classes(self):
+        prompts = {
+            "goal_blue": ["a", "b", "c"],
+            "goal_yellow": ["d", "e", "f"],
+            "ball": ["g"],
+        }
+
+        filtered = _filtered_prompts(
+            prompts,
+            "goal_blue,goal_yellow",
+            max_per_class=2,
+        )
+
+        self.assertEqual(filtered, {"goal_blue": ["a", "b"], "goal_yellow": ["d", "e"]})
+
     def test_detect_orange_ball_accepts_custom_profile(self):
         args = build_parser().parse_args(
             [
@@ -158,6 +275,40 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.color_profile, "white")
         self.assertEqual(args.hsv_lower, "0,0,160")
+
+    def test_detect_dark_robots_command_parses_color_shape_settings(self):
+        args = build_parser().parse_args(
+            [
+                "detect-dark-robots",
+                "--video",
+                "clip.mp4",
+                "--out",
+                "robots.jsonl",
+                "--min-area",
+                "500",
+                "--max-area",
+                "12000",
+                "--hsv-upper",
+                "179,255,115",
+                "--field-detections",
+                "field.jsonl",
+                "--min-center-y-ratio",
+                "0.25",
+                "--merge-distance-px",
+                "40",
+                "--max-per-frame",
+                "4",
+            ]
+        )
+
+        self.assertEqual(args.command, "detect-dark-robots")
+        self.assertEqual(args.min_area, 500)
+        self.assertEqual(args.max_area, 12000)
+        self.assertEqual(args.hsv_upper, "179,255,115")
+        self.assertEqual(args.field_detections, "field.jsonl")
+        self.assertEqual(args.min_center_y_ratio, 0.25)
+        self.assertEqual(args.merge_distance_px, 40)
+        self.assertEqual(args.max_per_frame, 4)
 
     def test_export_pseudolabels_command_parses_filters(self):
         args = build_parser().parse_args(
@@ -228,7 +379,15 @@ class CliHelpersTest(unittest.TestCase):
             ]
         )
         coco = build_parser().parse_args(
-            ["export-coco", "--manifest", "dataset/manifest.json", "--out-dir", "coco"]
+            [
+                "export-coco",
+                "--manifest",
+                "dataset/manifest.json",
+                "--out-dir",
+                "coco",
+                "--image-root",
+                "dataset",
+            ]
         )
 
         self.assertEqual(merge.manifests, "a/manifest.json,b/manifest.json")
@@ -236,6 +395,282 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(merge.split_strategy, "by-source-balanced")
         self.assertEqual(coco.manifest, "dataset/manifest.json")
         self.assertEqual(coco.out_dir, "coco")
+        self.assertEqual(coco.image_root, "dataset")
+
+    def test_balance_coco_command_parses_focus_settings(self):
+        args = build_parser().parse_args(
+            [
+                "balance-coco",
+                "--annotations",
+                "coco/train.json",
+                "--out",
+                "coco/train-balanced.json",
+                "--focus-classes",
+                "ball",
+                "--negative-ratio",
+                "1.5",
+                "--seed",
+                "44",
+                "--focus-only",
+            ]
+        )
+
+        self.assertEqual(args.focus_classes, "ball")
+        self.assertEqual(args.negative_ratio, 1.5)
+        self.assertEqual(args.seed, 44)
+        self.assertTrue(args.focus_only)
+
+    def test_prepare_sam3_finetune_command_parses_smoke_settings(self):
+        args = build_parser().parse_args(
+            [
+                "prepare-sam3-finetune",
+                "--template",
+                "/opt/sam3/template.yaml",
+                "--out",
+                "/opt/sam3/configs/samba.yaml",
+                "--data-root",
+                "/data/samba",
+                "--train-json",
+                "/data/samba/train.json",
+                "--val-json",
+                "/data/samba/val.json",
+                "--experiment-dir",
+                "/runs/smoke",
+                "--bpe-path",
+                "/opt/sam3/bpe.gz",
+                "--epochs",
+                "2",
+                "--train-limit",
+                "16",
+                "--val-limit",
+                "10",
+                "--resolution",
+                "672",
+                "--mode",
+                "val",
+            ]
+        )
+
+        self.assertEqual(args.epochs, 2)
+        self.assertEqual(args.train_limit, 16)
+        self.assertEqual(args.val_limit, 10)
+        self.assertEqual(args.resolution, 672)
+        self.assertEqual(args.mode, "val")
+
+    def test_compare_sam3_finetune_command_parses_paths(self):
+        args = build_parser().parse_args(
+            [
+                "compare-sam3-finetune",
+                "--ground-truth",
+                "val.json",
+                "--baseline",
+                "baseline.json",
+                "--candidate",
+                "candidate.json",
+                "--out",
+                "comparison.json",
+                "--report-out",
+                "comparison.md",
+            ]
+        )
+
+        self.assertEqual(args.command, "compare-sam3-finetune")
+        self.assertEqual(args.iou_type, "segm")
+
+    def test_sam3_training_export_command_parses_portable_dataset_options(self):
+        args = build_parser().parse_args(
+            [
+                "export-sam3-training",
+                "--manifest",
+                "dataset/manifest.json",
+                "--out-dir",
+                "dataset/sam3",
+                "--image-root",
+                "dataset",
+                "--class-prompts",
+                "prompts.json",
+                "--include-negatives",
+                "--negative-classes",
+                "ball,robots",
+                "--max-negative-pairs-per-class",
+                "30",
+            ]
+        )
+
+        self.assertEqual(args.image_root, "dataset")
+        self.assertEqual(args.class_prompts, "prompts.json")
+        self.assertTrue(args.include_negatives)
+        self.assertEqual(args.negative_classes, "ball,robots")
+        self.assertEqual(args.max_negative_pairs_per_class, 30)
+
+    def test_finetune_preflight_command_parses_environment_paths(self):
+        args = build_parser().parse_args(
+            [
+                "finetune-preflight",
+                "--sam3-root",
+                "/opt/sam3",
+                "--checkpoint",
+                "/models/sam3.pt",
+                "--train-json",
+                "train.json",
+                "--val-json",
+                "val.json",
+                "--train-images",
+                "images",
+                "--val-images",
+                "images",
+                "--out",
+                "preflight.json",
+                "--no-check-cuda",
+            ]
+        )
+
+        self.assertEqual(args.sam3_root, "/opt/sam3")
+        self.assertEqual(args.checkpoint, "/models/sam3.pt")
+        self.assertFalse(args.check_cuda)
+
+    def test_dataset_quality_command_parses_manifest_outputs_and_thresholds(self):
+        args = build_parser().parse_args(
+            [
+                "dataset-quality",
+                "--manifest",
+                "dataset/manifest.json",
+                "--out",
+                "dataset/quality.json",
+                "--report-out",
+                "dataset/quality.md",
+                "--low-score-threshold",
+                "0.72",
+                "--max-review-examples",
+                "9",
+            ]
+        )
+
+        self.assertEqual(args.manifest, "dataset/manifest.json")
+        self.assertEqual(args.out, "dataset/quality.json")
+        self.assertEqual(args.report_out, "dataset/quality.md")
+        self.assertEqual(args.low_score_threshold, 0.72)
+        self.assertEqual(args.max_review_examples, 9)
+
+    def test_curate_dataset_command_parses_filters_and_deduplication(self):
+        args = build_parser().parse_args(
+            [
+                "curate-dataset",
+                "--manifest",
+                "dataset/manifest.json",
+                "--out",
+                "dataset/curated.json",
+                "--report-out",
+                "dataset/curation.json",
+                "--classes",
+                "ball,robots",
+                "--min-score",
+                "0.72",
+                "--review-exclusions",
+                "dataset/review.json",
+                "--no-drop-empty-frames",
+                "--no-deduplicate-source-frames",
+            ]
+        )
+
+        self.assertEqual(args.classes, "ball,robots")
+        self.assertEqual(args.min_score, 0.72)
+        self.assertEqual(args.review_exclusions, "dataset/review.json")
+        self.assertFalse(args.drop_empty_frames)
+        self.assertFalse(args.deduplicate_source_frames)
+
+    def test_select_holdout_command_parses_reproducible_selection(self):
+        args = build_parser().parse_args(
+            [
+                "select-holdout",
+                "--manifest",
+                "dataset/curated.json",
+                "--out",
+                "dataset/holdout.json",
+                "--report-out",
+                "dataset/holdout-report.json",
+                "--max-frames",
+                "30",
+                "--preferred-split",
+                "test",
+                "--seed",
+                "44",
+            ]
+        )
+
+        self.assertEqual(args.max_frames, 30)
+        self.assertEqual(args.preferred_split, "test")
+        self.assertEqual(args.seed, 44)
+
+    def test_select_ball_review_command_parses_balanced_review_settings(self):
+        args = build_parser().parse_args(
+            [
+                "select-ball-review",
+                "--manifest",
+                "dataset/manifest.json",
+                "--out",
+                "dataset/ball-review.json",
+                "--report-out",
+                "dataset/ball-review-report.json",
+                "--positive-frames",
+                "12",
+                "--negative-frames",
+                "18",
+                "--seed",
+                "9",
+                "--class-name",
+                "ball",
+                "--source-group-mode",
+                "original-video",
+                "--min-frame-gap",
+                "6",
+            ]
+        )
+
+        self.assertEqual(args.command, "select-ball-review")
+        self.assertEqual(args.positive_frames, 12)
+        self.assertEqual(args.negative_frames, 18)
+        self.assertEqual(args.min_frame_gap, 6)
+
+    def test_ball_review_audit_and_export_commands_parse_paths(self):
+        audit = build_parser().parse_args(
+            [
+                "audit-ball-review",
+                "--review",
+                "dataset/ball-review.json",
+                "--out",
+                "dataset/ball-review-audit.json",
+                "--report-out",
+                "dataset/ball-review-audit.md",
+            ]
+        )
+        export = build_parser().parse_args(
+            [
+                "export-reviewed-ball",
+                "--review",
+                "dataset/ball-review.json",
+                "--out",
+                "dataset/reviewed-ball-manifest.json",
+                "--report-out",
+                "dataset/reviewed-ball-report.json",
+                "--no-include-verified-absence",
+                "--split-strategy",
+                "by-source-balanced",
+                "--train-ratio",
+                "0.7",
+                "--val-ratio",
+                "0.2",
+            ]
+        )
+
+        self.assertEqual(audit.command, "audit-ball-review")
+        self.assertEqual(audit.class_name, "ball")
+        self.assertEqual(audit.report_out, "dataset/ball-review-audit.md")
+        self.assertEqual(export.command, "export-reviewed-ball")
+        self.assertFalse(export.include_verified_absence)
+        self.assertEqual(export.split_strategy, "by-source-balanced")
+        self.assertEqual(export.train_ratio, 0.7)
+        self.assertEqual(export.val_ratio, 0.2)
 
     def test_jsonable_serializes_private_cli_values(self):
         value = _jsonable({"path": __file__, "func": self.test_jsonable_serializes_private_cli_values})
@@ -449,6 +884,29 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.field_analysis, "field.json")
         self.assertEqual(args.qa, "qa.json")
 
+    def test_submission_report_command_parses_batch_and_training_roots(self):
+        args = build_parser().parse_args(
+            [
+                "submission-report",
+                "--batch-root",
+                "outputs/review/batch",
+                "--training-root",
+                "outputs/review/training",
+                "--out",
+                "outputs/review/final.md",
+                "--title",
+                "Final Evidence",
+                "--top",
+                "3",
+            ]
+        )
+
+        self.assertEqual(args.batch_root, "outputs/review/batch")
+        self.assertEqual(args.training_root, "outputs/review/training")
+        self.assertEqual(args.out, "outputs/review/final.md")
+        self.assertEqual(args.title, "Final Evidence")
+        self.assertEqual(args.top, 3)
+
     def test_qa_run_command_parses_thresholds(self):
         args = build_parser().parse_args(
             [
@@ -516,6 +974,26 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.limit, 5)
         self.assertEqual(args.required_claims, "ball_tracking,team_possession,shot_pressure")
 
+    def test_compare_qa_command_parses_inputs_and_outputs(self):
+        args = build_parser().parse_args(
+            [
+                "compare-qa",
+                "--baseline",
+                "baseline-qa.json",
+                "--candidate",
+                "candidate-qa.json",
+                "--out",
+                "comparison.json",
+                "--report-out",
+                "comparison.md",
+            ]
+        )
+
+        self.assertEqual(args.baseline, "baseline-qa.json")
+        self.assertEqual(args.candidate, "candidate-qa.json")
+        self.assertEqual(args.out, "comparison.json")
+        self.assertEqual(args.report_out, "comparison.md")
+
     def test_event_summary_command_parses_paths(self):
         args = build_parser().parse_args(
             [
@@ -529,6 +1007,71 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.events, "events.json")
         self.assertEqual(args.out, "summary.json")
+
+    def test_assign_teams_command_parses_existing_tracks(self):
+        args = build_parser().parse_args(
+            [
+                "assign-teams",
+                "--video",
+                "clip.mp4",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "tracks-with-teams.jsonl",
+                "--config",
+                "config/default.yml",
+            ]
+        )
+
+        self.assertEqual(args.video, "clip.mp4")
+        self.assertEqual(args.tracks, "tracks.jsonl")
+        self.assertEqual(args.out, "tracks-with-teams.jsonl")
+
+    def test_validate_goals_command_parses_existing_artifacts(self):
+        args = build_parser().parse_args(
+            [
+                "validate-goals",
+                "--tracks",
+                "tracks.jsonl",
+                "--events",
+                "events.json",
+                "--out",
+                "validated-events.json",
+                "--config",
+                "config/custom.yml",
+            ]
+        )
+
+        self.assertEqual(args.tracks, "tracks.jsonl")
+        self.assertEqual(args.events, "events.json")
+        self.assertEqual(args.out, "validated-events.json")
+        self.assertEqual(args.config, "config/custom.yml")
+
+    def test_team_quality_command_parses_thresholds(self):
+        args = build_parser().parse_args(
+            [
+                "team-quality",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "team-quality.json",
+                "--report-out",
+                "team-quality.md",
+                "--unknown-ratio-threshold",
+                "0.3",
+                "--ambiguous-track-dominance",
+                "0.8",
+                "--max-dominant-team-ratio",
+                "0.9",
+            ]
+        )
+
+        self.assertEqual(args.tracks, "tracks.jsonl")
+        self.assertEqual(args.out, "team-quality.json")
+        self.assertEqual(args.report_out, "team-quality.md")
+        self.assertEqual(args.unknown_ratio_threshold, 0.3)
+        self.assertEqual(args.ambiguous_track_dominance, 0.8)
+        self.assertEqual(args.max_dominant_team_ratio, 0.9)
 
     def test_situation_analysis_command_parses_thresholds(self):
         args = build_parser().parse_args(
@@ -644,6 +1187,14 @@ class CliHelpersTest(unittest.TestCase):
                 "1.25",
                 "--freeze-event-types",
                 "shot,goal_candidate",
+                "--mask-alpha",
+                "0.42",
+                "--label-scale",
+                "0.9",
+                "--box-thickness",
+                "5",
+                "--visual-hold-frames",
+                "18",
             ]
         )
 
@@ -652,6 +1203,11 @@ class CliHelpersTest(unittest.TestCase):
         self.assertTrue(args.analysis_freeze)
         self.assertEqual(args.freeze_seconds, 1.25)
         self.assertEqual(args.freeze_event_types, "shot,goal_candidate")
+        self.assertTrue(args.mask_overlay)
+        self.assertEqual(args.mask_alpha, 0.42)
+        self.assertEqual(args.label_scale, 0.9)
+        self.assertEqual(args.box_thickness, 5)
+        self.assertEqual(args.visual_hold_frames, 18)
 
 
 if __name__ == "__main__":

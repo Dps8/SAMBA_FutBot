@@ -19,7 +19,7 @@ def write_json(path: str | Path, data: object) -> None:
 
 
 def read_json(path: str | Path) -> object:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
 def write_jsonl(path: str | Path, records: Iterable[dict]) -> None:
