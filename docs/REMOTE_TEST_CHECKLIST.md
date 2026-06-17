@@ -133,18 +133,32 @@ python -m samba_futbot.cli process-top-camera \
   --robot-recovery-min-center-y-ratio 0.38 \
   --robot-recovery-merge-distance-px 42 \
   --robot-recovery-max-per-frame 4 \
+  --robot-recovery-box-expand-x-px 36 \
+  --robot-recovery-box-expand-top-px 90 \
+  --robot-recovery-box-expand-bottom-px 20 \
+  --robot-filter-protect-near-ball-px 180 \
   --render \
   --render-narrative \
   --render-analysis \
   --analysis-freeze \
   --mask-overlay \
-  --label-scale 0.82 \
+  --label-scale 1.05 \
   --box-thickness 4
 ```
 
 Treat this as a review candidate until the late-frame boxes are visually
 checked. It is a SAM-compatible post-processing fallback, not YOLO or external
 detector training.
+
+Visual QA points for this command:
+
+- The ball should be orange.
+- Robots should be red/white, not team-colored.
+- Goal boxes should be blue/yellow.
+- Team names should not appear unless `--show-team-labels` is passed after a
+  successful `team-quality` review.
+- The robot closest to the ball should remain visible even when duplicate boxes
+  are filtered.
 
 Existing tracks and events can be validated without rerunning SAM3:
 

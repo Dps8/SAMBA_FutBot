@@ -82,9 +82,11 @@ June 16 local visual-fix verification generated short render checks under:
 - `outputs/review/2026-06-16/visual_fix_check`
 
 The preview confirms object-priority colors, hidden geometry-only false goals
-and filtered robot overlays on the existing `IMG_9938_f001799_10s` tracks. A
-full top-camera and normal-view reprocessing pass is still required before
-claiming final statistics.
+and filtered robot overlays on the existing `IMG_9938_f001799_10s` tracks.
+Follow-up local work added ball-aware robot filtering, expanded HSV robot
+recovery boxes and stale overlay suppression in the render. A full top-camera
+and normal-view reprocessing pass is still required before claiming final
+statistics.
 
 The June 8 batch processed 14 top-camera track variants and identified four
 strong showcase candidates. It also generated narrative and analysis-freeze
