@@ -8,6 +8,7 @@ import numpy as np
 
 from samba_futbot.color_robots import (
     _box_inside_any_field,
+    _expand_box,
     _keep_best_per_frame,
     _merge_nearby_candidates,
     detect_dark_robots,
@@ -62,6 +63,18 @@ class ColorRobotsTest(unittest.TestCase):
         kept = _keep_best_per_frame(detections, max_per_frame=2)
 
         self.assertEqual([det.score for det in kept], [0.9, 0.7])
+
+    def test_expand_box_clips_to_frame(self):
+        box = _expand_box(
+            (5, 10, 30, 40),
+            frame_width=100,
+            frame_height=80,
+            expand_x_px=10,
+            expand_top_px=20,
+            expand_bottom_px=50,
+        )
+
+        self.assertEqual(box, (0.0, 0.0, 40.0, 80.0))
 
     def test_merge_nearby_candidates_unions_robot_parts(self):
         detections = [

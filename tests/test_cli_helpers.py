@@ -40,6 +40,9 @@ class CliHelpersTest(unittest.TestCase):
         self.assertFalse(args.robot_color_recovery)
         self.assertEqual(args.robot_recovery_min_area, 800.0)
         self.assertEqual(args.robot_recovery_min_circularity, 0.30)
+        self.assertEqual(args.robot_recovery_box_expand_x_px, 36.0)
+        self.assertEqual(args.robot_recovery_box_expand_top_px, 90.0)
+        self.assertEqual(args.robot_recovery_box_expand_bottom_px, 20.0)
         self.assertIsNone(args.robot_filter)
         self.assertIsNone(args.robot_filter_max_per_frame)
         self.assertEqual(args.refine_max_jump_px, 35.0)
@@ -98,6 +101,12 @@ class CliHelpersTest(unittest.TestCase):
                 "42",
                 "--robot-recovery-max-per-frame",
                 "4",
+                "--robot-recovery-box-expand-x-px",
+                "30",
+                "--robot-recovery-box-expand-top-px",
+                "80",
+                "--robot-recovery-box-expand-bottom-px",
+                "15",
             ]
         )
 
@@ -108,6 +117,9 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.robot_recovery_min_center_y_ratio, 0.38)
         self.assertEqual(args.robot_recovery_merge_distance_px, 42)
         self.assertEqual(args.robot_recovery_max_per_frame, 4)
+        self.assertEqual(args.robot_recovery_box_expand_x_px, 30)
+        self.assertEqual(args.robot_recovery_box_expand_top_px, 80)
+        self.assertEqual(args.robot_recovery_box_expand_bottom_px, 15)
 
     def test_process_top_camera_parses_robot_filter_settings(self):
         args = build_parser().parse_args(
@@ -302,6 +314,12 @@ class CliHelpersTest(unittest.TestCase):
                 "40",
                 "--max-per-frame",
                 "4",
+                "--box-expand-x-px",
+                "12",
+                "--box-expand-top-px",
+                "24",
+                "--box-expand-bottom-px",
+                "6",
             ]
         )
 
@@ -313,6 +331,9 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.min_center_y_ratio, 0.25)
         self.assertEqual(args.merge_distance_px, 40)
         self.assertEqual(args.max_per_frame, 4)
+        self.assertEqual(args.box_expand_x_px, 12)
+        self.assertEqual(args.box_expand_top_px, 24)
+        self.assertEqual(args.box_expand_bottom_px, 6)
 
     def test_export_pseudolabels_command_parses_filters(self):
         args = build_parser().parse_args(

@@ -30,6 +30,9 @@ def detect_dark_robots(
     max_center_y_ratio: float = 1.0,
     merge_distance_px: float = 32.0,
     max_per_frame: int = 6,
+    box_expand_x_px: float = 0.0,
+    box_expand_top_px: float = 0.0,
+    box_expand_bottom_px: float = 0.0,
 ) -> list[Detection]:
     """Detect dark robot bodies from a top-camera video using color/shape cues."""
     cv2 = require_cv2()
@@ -70,6 +73,9 @@ def detect_dark_robots(
                 border_margin_px=border_margin_px,
                 min_center_y_ratio=min_center_y_ratio,
                 max_center_y_ratio=max_center_y_ratio,
+                box_expand_x_px=box_expand_x_px,
+                box_expand_top_px=box_expand_top_px,
+                box_expand_bottom_px=box_expand_bottom_px,
             )
             if candidate is None:
                 continue
@@ -109,6 +115,9 @@ def _robot_candidate_from_contour(
     border_margin_px: float,
     min_center_y_ratio: float,
     max_center_y_ratio: float,
+    box_expand_x_px: float,
+    box_expand_top_px: float,
+    box_expand_bottom_px: float,
 ) -> Detection | None:
     area = float(cv2.contourArea(contour))
     if area < min_area or area > max_area:
@@ -133,20 +142,51 @@ def _robot_candidate_from_contour(
     extent = area / float(w * h)
     if extent < min_extent or extent > max_extent:
         return None
+    original_box = (float(x), float(y), float(x + w), float(y + h))
+    box = _expand_box(
+        original_box,
+        frame_width=frame_width,
+        frame_height=frame_height,
+        expand_x_px=box_expand_x_px,
+        expand_top_px=box_expand_top_px,
+        expand_bottom_px=box_expand_bottom_px,
+    )
     score = min(0.92, 0.40 + min(0.25, area / max_area) + min(0.22, circularity * 0.22))
     return Detection(
         frame_index=frame_index,
         class_name="robots",
         score=score,
-        box=(float(x), float(y), float(x + w), float(y + h)),
+        box=box,
         prompt="hsv_dark_robot_fallback",
         area=area,
         extra={
             "source": "color_robots",
+            "original_color_robot_box": list(original_box),
             "extent": extent,
             "circularity": circularity,
             "center_y_ratio": center_y_ratio,
+            "box_expand_x_px": box_expand_x_px,
+            "box_expand_top_px": box_expand_top_px,
+            "box_expand_bottom_px": box_expand_bottom_px,
         },
+    )
+
+
+def _expand_box(
+    box: tuple[float, float, float, float],
+    *,
+    frame_width: int,
+    frame_height: int,
+    expand_x_px: float,
+    expand_top_px: float,
+    expand_bottom_px: float,
+) -> tuple[float, float, float, float]:
+    x1, y1, x2, y2 = box
+    return (
+        max(0.0, x1 - max(0.0, expand_x_px)),
+        max(0.0, y1 - max(0.0, expand_top_px)),
+        min(float(frame_width), x2 + max(0.0, expand_x_px)),
+        min(float(frame_height), y2 + max(0.0, expand_bottom_px)),
     )
 
 

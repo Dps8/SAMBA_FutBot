@@ -470,6 +470,9 @@ def build_parser() -> argparse.ArgumentParser:
     dark_robots.add_argument("--max-center-y-ratio", type=float, default=1.0)
     dark_robots.add_argument("--merge-distance-px", type=float, default=32.0)
     dark_robots.add_argument("--max-per-frame", type=int, default=6)
+    dark_robots.add_argument("--box-expand-x-px", type=float, default=0.0)
+    dark_robots.add_argument("--box-expand-top-px", type=float, default=0.0)
+    dark_robots.add_argument("--box-expand-bottom-px", type=float, default=0.0)
     dark_robots.set_defaults(func=cmd_detect_dark_robots)
 
     refine_ball = sub.add_parser("refine-ball", help="Refinar trayectoria temporal de pelota.")
@@ -609,6 +612,9 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--robot-recovery-max-center-y-ratio", type=float, default=1.0)
     top_camera.add_argument("--robot-recovery-merge-distance-px", type=float, default=32.0)
     top_camera.add_argument("--robot-recovery-max-per-frame", type=int, default=6)
+    top_camera.add_argument("--robot-recovery-box-expand-x-px", type=float, default=36.0)
+    top_camera.add_argument("--robot-recovery-box-expand-top-px", type=float, default=90.0)
+    top_camera.add_argument("--robot-recovery-box-expand-bottom-px", type=float, default=20.0)
     top_camera.add_argument("--robot-filter", action=argparse.BooleanOptionalAction, default=None)
     top_camera.add_argument("--robot-filter-max-per-frame", type=int, default=None)
     top_camera.add_argument("--robot-filter-min-area", type=float, default=None)
@@ -1634,6 +1640,9 @@ def cmd_detect_dark_robots(args: argparse.Namespace) -> None:
         max_center_y_ratio=args.max_center_y_ratio,
         merge_distance_px=args.merge_distance_px,
         max_per_frame=args.max_per_frame,
+        box_expand_x_px=args.box_expand_x_px,
+        box_expand_top_px=args.box_expand_top_px,
+        box_expand_bottom_px=args.box_expand_bottom_px,
     )
     by_late_frame = sum(1 for det in detections if det.frame_index >= 120)
     print(
@@ -2141,6 +2150,9 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
             max_center_y_ratio=args.robot_recovery_max_center_y_ratio,
             merge_distance_px=args.robot_recovery_merge_distance_px,
             max_per_frame=args.robot_recovery_max_per_frame,
+            box_expand_x_px=args.robot_recovery_box_expand_x_px,
+            box_expand_top_px=args.robot_recovery_box_expand_top_px,
+            box_expand_bottom_px=args.robot_recovery_box_expand_bottom_px,
         )
     color_goal_detections = _detect_color_goals_for_process(
         args,
