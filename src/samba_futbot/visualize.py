@@ -149,6 +149,11 @@ def render_demo_video(
         frame_dets = by_frame.get(frame_index, [])
         ball = _best_ball(frame_dets)
         distances = robot_ball_distances(frame_dets, ball)
+        current_overlay_dets = [
+            det
+            for det in frame_dets
+            if _should_draw_detection(det, style=style) and _should_overlay_detection(det)
+        ]
         current_keys: set[tuple[str, int]] = set()
         label_boxes: list[tuple[int, int, int, int]] = []
         for det in frame_dets:
@@ -175,6 +180,7 @@ def render_demo_video(
             annotated,
             recent_detections,
             current_keys=current_keys,
+            current_detections=current_overlay_dets,
             frame_index=frame_index,
             hold_frames=visual_hold_frames,
             label_scale=label_scale,
@@ -305,6 +311,7 @@ def _draw_held_detections(
     recent_detections: dict[tuple[str, int], tuple[Detection, int]],
     *,
     current_keys: set[tuple[str, int]],
+    current_detections: list[Detection],
     frame_index: int,
     hold_frames: int,
     label_scale: float,
@@ -320,6 +327,8 @@ def _draw_held_detections(
             continue
         if key in current_keys or age <= 0:
             continue
+        if _held_detection_conflicts(det, current_detections):
+            continue
         x1, y1, x2, y2 = [int(round(v)) for v in det.box]
         color_bgr = tuple(reversed(class_color(det.class_name, det.team, det.track_id)))
         alpha = max(0.10, 0.24 * (1.0 - age / max(1, hold_frames + 1)))
@@ -334,6 +343,82 @@ def _draw_held_detections(
         )
     for key in expired:
         recent_detections.pop(key, None)
+
+
+def _held_detection_conflicts(held: Detection, current_detections: list[Detection]) -> bool:
+    for current in current_detections:
+        if not _same_visual_family(held, current):
+            continue
+        if _box_iou(held.box, current.box) >= 0.15:
+            return True
+        if _containment_ratio(held.box, current.box) >= 0.55:
+            return True
+        if distance(held.centroid, current.centroid) <= 80:
+            return True
+    if held.class_name in ROBOT_CLASSES and _held_robot_conflicts_near_ball(
+        held,
+        current_detections,
+    ):
+        return True
+    return False
+
+
+def _held_robot_conflicts_near_ball(held: Detection, current_detections: list[Detection]) -> bool:
+    balls = [det for det in current_detections if det.class_name in BALL_CLASSES]
+    robots = [det for det in current_detections if det.class_name in ROBOT_CLASSES]
+    for ball in balls:
+        if distance(held.centroid, ball.centroid) > 140:
+            continue
+        if any(distance(robot.centroid, ball.centroid) <= 190 for robot in robots):
+            return True
+    return False
+
+
+def _same_visual_family(first: Detection, second: Detection) -> bool:
+    if first.class_name in ROBOT_CLASSES and second.class_name in ROBOT_CLASSES:
+        return True
+    if first.class_name in BALL_CLASSES and second.class_name in BALL_CLASSES:
+        return True
+    if first.class_name.startswith("goal_") and second.class_name.startswith("goal_"):
+        return first.class_name == second.class_name
+    return first.class_name == second.class_name
+
+
+def _box_iou(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    intersection = _intersection_area(first, second)
+    union = _box_area(first) + _box_area(second) - intersection
+    if union <= 0:
+        return 0.0
+    return intersection / union
+
+
+def _containment_ratio(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    smaller = min(_box_area(first), _box_area(second))
+    if smaller <= 0:
+        return 0.0
+    return _intersection_area(first, second) / smaller
+
+
+def _intersection_area(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[2], second[2])
+    y2 = min(first[3], second[3])
+    return _box_area((x1, y1, x2, y2))
+
+
+def _box_area(box: tuple[float, float, float, float]) -> float:
+    x1, y1, x2, y2 = box
+    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
 
 
 def _should_overlay_detection(det: Detection) -> bool:

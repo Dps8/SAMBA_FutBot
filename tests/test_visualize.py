@@ -17,6 +17,7 @@ from samba_futbot.visualize import (
     _freeze_frame_count,
     _freeze_overlay_summary,
     _frame_header,
+    _held_detection_conflicts,
     _load_detection_mask,
     _recent_event,
     _should_draw_detection,
@@ -241,6 +242,18 @@ class VisualizeTest(unittest.TestCase):
         self.assertEqual(_visual_track_key(robot), ("robots", 4))
         self.assertIsNone(_visual_track_key(field))
         self.assertIsNone(_visual_track_key(untracked_ball))
+
+    def test_held_detection_conflicts_with_nearby_current_robot(self):
+        held = Detection(4, "robots", 0.7, (100, 100, 180, 180), track_id=4)
+        current = Detection(5, "robots", 0.8, (135, 120, 220, 205), track_id=9)
+        far = Detection(5, "robots", 0.8, (400, 400, 480, 480), track_id=10)
+        ball = Detection(5, "ball", 0.9, (135, 120, 150, 135), track_id=2)
+        current_near_ball = Detection(5, "robots", 0.8, (155, 130, 225, 205), track_id=11)
+
+        self.assertTrue(_held_detection_conflicts(held, [current]))
+        self.assertFalse(_held_detection_conflicts(held, [far]))
+        self.assertFalse(_held_detection_conflicts(held, [ball]))
+        self.assertTrue(_held_detection_conflicts(held, [ball, current_near_ball]))
 
     def test_label_origin_avoids_occupied_box_when_possible(self):
         occupied = [(7, 0, 65, 25)]
