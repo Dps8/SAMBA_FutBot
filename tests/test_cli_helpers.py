@@ -59,6 +59,7 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.orange_min_area, 300.0)
         self.assertEqual(args.orange_max_per_frame, 6)
         self.assertFalse(args.robot_color_recovery)
+
         self.assertEqual(args.robot_recovery_min_area, 800.0)
         self.assertEqual(args.robot_recovery_min_circularity, 0.30)
         self.assertEqual(args.robot_recovery_box_expand_x_px, 36.0)
@@ -83,6 +84,12 @@ class CliHelpersTest(unittest.TestCase):
         self.assertTrue(args.generate_game_state)
         self.assertTrue(args.filter_by_game_state)
         self.assertEqual(args.game_state_missing_ball_frames, 12)
+
+    def test_process_video_covers_ball_from_first_frame(self):
+        args = build_parser().parse_args(["process-video", "--video", "clip.mp4"])
+
+        self.assertEqual(args.ball_start, 0)
+        self.assertEqual(args.ball_window_size, args.ball_step)
 
     def test_process_top_camera_can_disable_ball_sources(self):
         args = build_parser().parse_args(

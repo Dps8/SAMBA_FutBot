@@ -504,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--field-step", type=int, default=120)
     process.add_argument("--ball-step", type=int, default=120)
     process.add_argument("--field-start", type=int, default=0)
-    process.add_argument("--ball-start", type=int, default=150)
+    process.add_argument("--ball-start", type=int, default=0)
     process.add_argument("--field-threshold", type=float, default=0.45)
     process.add_argument("--ball-threshold", type=float, default=0.05)
     process.add_argument("--field-dedupe-iou", type=float, default=0.90)
