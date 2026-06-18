@@ -172,6 +172,13 @@ Puntos clave:
 - Un evento `goal_candidate` mantiene `goal_scoring` en revision. El claim solo
   pasa a listo cuando existe evidencia emitida como `goal_confirmed`; el
   marcador mostrado antes de eso siempre es candidato.
+- Cada candidato que no cumple la validacion temporal genera `goal_rejected`
+  con una causa auditable, por ejemplo `geometry_only_goal`,
+  `missing_entry_history`, `ball_not_approaching_goal` o
+  `insufficient_inside_frames`. Estos eventos no modifican el marcador.
+- Los eventos consecutivos equivalentes se deduplican por tipo, actores y
+  objetivo dentro de una ventana configurable. Esto evita contar varios tiros
+  o colisiones para una sola jugada continua.
 - `analysis.goal_confirmation` valida temporalmente el gol: descarta porterias
   inferidas por geometria, exige una pelota que venga desde fuera, movimiento
   hacia la porteria y permanencia dentro durante varios frames. Sus umbrales se

@@ -66,6 +66,15 @@ class VisualizeTest(unittest.TestCase):
 
         self.assertEqual(_event_label(event), "confirmed goal blue")
 
+    def test_rejected_goal_reports_reason(self):
+        event = {
+            "frame_index": 20,
+            "event_type": "goal_rejected",
+            "metadata": {"rejection_reason": "geometry_only_goal"},
+        }
+
+        self.assertEqual(_event_label(event), "goal rejected geometry_only_goal")
+
     def test_analysis_header_uses_analysis_label(self):
         header = _frame_header(3, None, style="analysis")
 

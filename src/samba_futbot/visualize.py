@@ -26,6 +26,7 @@ COLORS = {
 DEFAULT_FREEZE_EVENT_TYPES = {
     "goal_confirmed",
     "goal_candidate",
+    "goal_rejected",
     "shot",
     "pass",
     "interception",
@@ -40,6 +41,7 @@ DEFAULT_FREEZE_EVENT_TYPES = {
 FREEZE_EVENT_PRIORITY = {
     "goal_confirmed": 120,
     "goal_candidate": 100,
+    "goal_rejected": 95,
     "shot_pressure": 90,
     "shot": 80,
     "possession_risk": 70,
@@ -757,6 +759,8 @@ def _event_label(event: dict) -> str:
         return f"confirmed goal {metadata.get('scoring_team', 'unknown')}"
     if event_type == "goal_candidate":
         return f"goal candidate {metadata.get('scoring_team', 'unknown')}"
+    if event_type == "goal_rejected":
+        return f"goal rejected {metadata.get('rejection_reason', 'review')}"
     if event_type == "shot":
         return f"shot {metadata.get('shooting_team', 'unknown')}"
     return event_type

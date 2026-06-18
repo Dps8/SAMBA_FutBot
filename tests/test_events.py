@@ -2,11 +2,12 @@ import unittest
 
 from samba_futbot.events import (
     confirm_goal_candidates,
+    deduplicate_events,
     detect_events,
     estimate_possession,
     summarize_events,
 )
-from samba_futbot.types import Detection
+from samba_futbot.types import Detection, Event
 
 
 class EventsTest(unittest.TestCase):
@@ -138,6 +139,21 @@ class EventsTest(unittest.TestCase):
         events = confirm_goal_candidates(detections, detect_events(detections))
 
         self.assertFalse(any(event.event_type == "goal_confirmed" for event in events))
+        rejected = [event for event in events if event.event_type == "goal_rejected"]
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0].metadata["rejection_reason"], "geometry_only_goal")
+
+    def test_event_deduplication_keeps_strongest_event_in_cooldown(self):
+        events = [
+            Event(10, "shot", "Tiro inicial", 0.5, actors=[7], metadata={"target_side": "left"}),
+            Event(14, "shot", "Tiro mas fuerte", 0.8, actors=[7], metadata={"target_side": "left"}),
+            Event(30, "shot", "Nuevo tiro", 0.6, actors=[7], metadata={"target_side": "left"}),
+        ]
+
+        deduplicated = deduplicate_events(events)
+
+        self.assertEqual([event.frame_index for event in deduplicated], [14, 30])
+        self.assertEqual(deduplicated[0].description, "Tiro mas fuerte")
 
     def test_non_consecutive_goal_presence_does_not_confirm(self):
         detections = [

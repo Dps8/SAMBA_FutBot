@@ -8,6 +8,16 @@ from .types import Detection, Event
 
 GOAL_CLASSES = {"goal", "goal_blue", "goal_yellow", "blue_goal", "yellow_goal"}
 
+DEFAULT_EVENT_COOLDOWNS = {
+    "shot": 12,
+    "pass": 8,
+    "interception": 8,
+    "collision": 20,
+    "goal_candidate": 45,
+    "goal_confirmed": 45,
+    "goal_rejected": 45,
+}
+
 
 def estimate_possession(
     detections: Iterable[Detection], possession_radius_px: float = 90.0
@@ -167,7 +177,7 @@ def confirm_goal_candidates(
     detections_list = list(detections)
     frames = group_by_frame(detections_list)
     events_list = list(events)
-    confirmed: list[Event] = []
+    reviewed: list[Event] = []
     existing_confirmations = {
         (
             int(event.metadata.get("candidate_frame", event.frame_index)),
@@ -186,9 +196,13 @@ def confirm_goal_candidates(
             continue
         goal = _goal_for_candidate(frames.get(frame_index, []), side)
         ball = _ball_for_candidate(frames.get(frame_index, []), candidate)
-        if not goal or not ball:
-            continue
-        if goal.score < min_goal_score or goal.extra.get("source") == "goal_geometry":
+        rejection_reason = _goal_rejection_reason(
+            goal,
+            ball,
+            min_goal_score=min_goal_score,
+        )
+        if rejection_reason:
+            reviewed.append(_rejected_goal(candidate, rejection_reason))
             continue
         previous = _previous_ball(
             frames,
@@ -196,12 +210,18 @@ def confirm_goal_candidates(
             frame_index=frame_index,
             lookback_frames=lookback_frames,
         )
-        if not previous or _ball_inside_goal(previous, goal):
+        if not previous:
+            reviewed.append(_rejected_goal(candidate, "missing_entry_history"))
+            continue
+        if _ball_inside_goal(previous, goal):
+            reviewed.append(_rejected_goal(candidate, "ball_already_inside_goal"))
             continue
         entry_motion = distance(previous.centroid, ball.centroid)
         if entry_motion < min_entry_motion_px:
+            reviewed.append(_rejected_goal(candidate, "insufficient_entry_motion"))
             continue
         if distance(ball.centroid, goal.centroid) >= distance(previous.centroid, goal.centroid):
+            reviewed.append(_rejected_goal(candidate, "ball_not_approaching_goal"))
             continue
         inside_frames = _inside_goal_frames(
             frames,
@@ -211,8 +231,15 @@ def confirm_goal_candidates(
             confirmation_frames=confirmation_frames,
         )
         if len(inside_frames) < min_inside_frames:
+            reviewed.append(
+                _rejected_goal(
+                    candidate,
+                    "insufficient_inside_frames",
+                    metadata={"inside_frames": inside_frames},
+                )
+            )
             continue
-        confirmed.append(
+        reviewed.append(
             Event(
                 frame_index=frame_index,
                 event_type="goal_confirmed",
@@ -230,7 +257,32 @@ def confirm_goal_candidates(
             )
         )
         existing_confirmations.add((frame_index, side))
-    return sorted(events_list + confirmed, key=lambda event: (event.frame_index, event.event_type))
+    return deduplicate_events(
+        sorted(events_list + reviewed, key=lambda event: (event.frame_index, event.event_type))
+    )
+
+
+def deduplicate_events(
+    events: Iterable[Event],
+    *,
+    cooldowns: dict[str, int] | None = None,
+) -> list[Event]:
+    resolved_cooldowns = {**DEFAULT_EVENT_COOLDOWNS, **(cooldowns or {})}
+    kept: list[Event] = []
+    last_index_by_key: dict[tuple, int] = {}
+    for event in sorted(events, key=lambda item: (item.frame_index, item.event_type)):
+        cooldown = max(0, int(resolved_cooldowns.get(event.event_type, 0)))
+        key = _event_dedup_key(event)
+        previous_index = last_index_by_key.get(key)
+        if previous_index is not None:
+            previous = kept[previous_index]
+            if event.frame_index - previous.frame_index < cooldown:
+                if event.confidence > previous.confidence:
+                    kept[previous_index] = event
+                continue
+        last_index_by_key[key] = len(kept)
+        kept.append(event)
+    return sorted(kept, key=lambda item: (item.frame_index, item.event_type))
 
 
 def summarize_events(events: Iterable[Event | dict]) -> dict:
@@ -241,6 +293,7 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
     goals_by_side: dict[str, int] = {}
     shots_by_team: dict[str, int] = {}
     shots_by_target_side: dict[str, int] = {}
+    rejected_goals_by_reason: dict[str, int] = {}
     first_frame: int | None = None
     last_frame: int | None = None
     timeline = []
@@ -260,6 +313,9 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
         if event_type == "goal_confirmed":
             scoring_team = str(metadata.get("scoring_team", "unknown"))
             confirmed_scoreboard[scoring_team] = confirmed_scoreboard.get(scoring_team, 0) + 1
+        if event_type == "goal_rejected":
+            reason = str(metadata.get("rejection_reason", "unknown"))
+            rejected_goals_by_reason[reason] = rejected_goals_by_reason.get(reason, 0) + 1
         if event_type == "shot":
             shooting_team = str(metadata.get("shooting_team", "unknown"))
             target_side = str(metadata.get("target_side", "unknown"))
@@ -268,6 +324,7 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
         if event_type in {
             "goal_candidate",
             "goal_confirmed",
+            "goal_rejected",
             "shot",
             "pass",
             "interception",
@@ -299,6 +356,8 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
         "goals": {
             "total": counts.get("goal_candidate", 0),
             "confirmed": counts.get("goal_confirmed", 0),
+            "rejected": counts.get("goal_rejected", 0),
+            "rejected_by_reason": dict(sorted(rejected_goals_by_reason.items())),
             "by_goal_side": dict(sorted(goals_by_side.items())),
         },
         "shots": {
@@ -316,6 +375,7 @@ def summarize_events(events: Iterable[Event | dict]) -> dict:
         "discipline": {
             "collisions": counts.get("collision", 0),
             "shots": counts.get("shot", 0),
+            "invalid_goals": counts.get("goal_rejected", 0),
         },
         "timeline": timeline[:25],
     }
@@ -381,6 +441,57 @@ def _inside_goal_frames(
             break
         inside.append(frame_index)
     return inside
+
+
+def _goal_rejection_reason(
+    goal: Detection | None,
+    ball: Detection | None,
+    *,
+    min_goal_score: float,
+) -> str | None:
+    if goal is None:
+        return "missing_goal_detection"
+    if ball is None:
+        return "missing_ball_detection"
+    if goal.extra.get("source") == "goal_geometry":
+        return "geometry_only_goal"
+    if goal.score < min_goal_score:
+        return "low_goal_confidence"
+    return None
+
+
+def _rejected_goal(
+    candidate: Event,
+    reason: str,
+    *,
+    metadata: dict | None = None,
+) -> Event:
+    return Event(
+        frame_index=candidate.frame_index,
+        event_type="goal_rejected",
+        description=f"Candidato de gol descartado: {reason}",
+        confidence=candidate.confidence,
+        actors=list(candidate.actors),
+        metadata={
+            **candidate.metadata,
+            "candidate_frame": candidate.frame_index,
+            "rejection_reason": reason,
+            "validation": "temporal_goal_rejection",
+            **(metadata or {}),
+        },
+    )
+
+
+def _event_dedup_key(event: Event) -> tuple:
+    metadata = event.metadata if isinstance(event.metadata, dict) else {}
+    actors = tuple(sorted(str(actor) for actor in event.actors))
+    return (
+        event.event_type,
+        actors,
+        str(metadata.get("goal_side", "")),
+        str(metadata.get("target_side", "")),
+        str(metadata.get("rejection_reason", "")),
+    )
 
 
 def _goal_side_from_class(class_name: str) -> str:
