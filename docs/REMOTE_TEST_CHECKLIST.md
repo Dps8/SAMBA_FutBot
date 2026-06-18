@@ -15,7 +15,7 @@ Confirm that the new commands and prompts are available:
 
 ```bash
 python -m samba_futbot.cli --help | grep -E \
-  'process-top-camera|dataset-quality|curate-dataset|select-holdout|select-ball-review|audit-ball-review|export-reviewed-ball|team-quality|submission-report'
+  'process-top-camera|assign-teams-embedding|dataset-quality|curate-dataset|select-holdout|select-ball-review|audit-ball-review|export-reviewed-ball|team-quality|submission-report'
 
 python - <<'PY'
 from argparse import Namespace
@@ -33,7 +33,45 @@ Expected context classes:
 field,robots,goal_blue,goal_yellow,person,human,referee,hand
 ```
 
-## 2. Locate A Top-Camera Clip
+Confirm the long-video safeguards copied from Windows:
+
+```bash
+python - <<'PY'
+from samba_futbot.config import load_config
+c = load_config("config/default.yml")["sam3"]
+print({key: c[key] for key in (
+    "max_num_objects",
+    "prompt_window_strategy",
+    "long_video_prompts_per_class_per_window",
+)})
+PY
+```
+
+Expected: `max_num_objects=16`, rotating prompts and one prompt per class for
+long videos. The official predictor converts an unlimited value to 10,000
+masklets, which exhausts a 16 GB GPU.
+
+## 2. GPU Memory Validation
+
+Run this before any complete video:
+
+```bash
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+python -m samba_futbot.cli run-sam3-sweep \
+  --config config/default.yml \
+  --video "outputs/review/2026-05-27/18abril_top_camera/clips/IMG_9938_f001799_10s.mp4" \
+  --out "outputs/review/2026-06-18/memory_validation_max16" \
+  --prompt-frames 0 \
+  --window-size 120 \
+  --end-frame 120 \
+  --classes "field,robots,goal_blue,goal_yellow" \
+  --max-num-objects 16
+```
+
+Do not start a full run unless `manifest.json` exists and the log contains no
+`CUDA out of memory` traceback.
+
+## 3. Locate A Top-Camera Clip
 
 ```bash
 find outputs data -type f \
@@ -47,7 +85,7 @@ The commands below use this known reviewed clip:
 outputs/review/2026-05-27/18abril_top_camera/clips/IMG_9938_f001799_10s.mp4
 ```
 
-## 3. Three-Second Smoke Test
+## 4. Three-Second Smoke Test
 
 ```bash
 python -m samba_futbot.cli process-top-camera \
@@ -69,7 +107,7 @@ Check that the run produced tracks, game state, QA and videos:
 find "outputs/review/2026-06-14/remote_smoke_3s" -type f | sort
 ```
 
-## 4. Ten-Second Validation
+## 5. Ten-Second Validation
 
 Run this only after the smoke test completes:
 
@@ -170,7 +208,64 @@ python -m samba_futbot.cli validate-goals \
   --config config/default.yml
 ```
 
-## 5. Dataset Gate
+## 6. Complete Video Runs
+
+Verify the clean top-camera source before processing. Its exact Windows source
+size is 1,287,686,826 bytes:
+
+```bash
+stat -c '%s %n' \
+  /home/robocup/ComputerVision/Videos/18abril_top_camera/IMG_9938.MOV
+```
+
+If the size differs, replace it from the original; do not use a resumed HTTP
+file. Then run the normal-view video first:
+
+```bash
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+python -m samba_futbot.cli process-video \
+  --config config/default.yml \
+  --video "/home/robocup/ComputerVision/Videos/17Abril-20260520T063700Z-3-001/17Abril/video-571_singular_display.mov" \
+  --results-dir "outputs/review/2026-06-18/full_normal_video571_max16" \
+  --suffix "normal-official-sam3-bytetrack-v1" \
+  --human-context \
+  --goals \
+  --color-goals \
+  --analysis-freeze \
+  --freeze-seconds 4 \
+  --mask-overlay \
+  --label-scale 1.05 \
+  --box-thickness 4 \
+  --visual-hold-frames 18 \
+  --no-show-team-labels
+```
+
+After it finishes and releases the GPU, run the full top-camera source:
+
+```bash
+python -m samba_futbot.cli process-top-camera \
+  --config config/default.yml \
+  --video "/home/robocup/ComputerVision/Videos/18abril_top_camera/IMG_9938.MOV" \
+  --results-dir "outputs/review/2026-06-18/full_top_IMG_9938_max16" \
+  --suffix "top-official-sam3-hybrid-bytetrack-v1" \
+  --human-context \
+  --goals \
+  --color-goals \
+  --robot-color-recovery \
+  --robot-filter-protect-near-ball-px 180 \
+  --analysis-freeze \
+  --freeze-seconds 4 \
+  --mask-overlay \
+  --label-scale 1.05 \
+  --box-thickness 4 \
+  --visual-hold-frames 18 \
+  --no-show-team-labels
+```
+
+Both commands use ByteTrack from `config/default.yml`, write separate narrative
+and analysis videos and keep team labels hidden until the team gate passes.
+
+## 7. Dataset Gate
 
 ```bash
 python -m samba_futbot.cli dataset-quality \
@@ -235,7 +330,7 @@ Expected fingerprint:
 9fc753bc4b6ecadd2f49855e90b40188360b215ea4b4dd22a64ae44eb8adfba9
 ```
 
-## 6. Ball-Review Gate
+## 8. Ball-Review Gate
 
 Do not train a promoted ball checkpoint from pseudo-negatives. First audit the
 human-review package and generate the Markdown checklist:
@@ -272,7 +367,7 @@ Only proceed to SAM3 segmentation adaptation when `mask_ready_annotations` is
 non-zero and enough verified absence labels come from more than one original
 recording.
 
-## 7. Team Gate
+## 9. Team Gate
 
 Existing tracks can be reclassified and audited without repeating SAM3:
 
@@ -292,7 +387,26 @@ python -m samba_futbot.cli team-quality \
 Do not promote team-possession claims when `unknown_ratio_above_threshold` or
 `team_imbalance_above_threshold` is true.
 
-## 8. Local Tests
+If HSV collapses both teams, produce a structural candidate and audit it with
+the same thresholds:
+
+```bash
+python -m samba_futbot.cli assign-teams-embedding \
+  --video "PATH/TO/video.mov" \
+  --tracks "PATH/TO/tracks-with-hsv-teams.jsonl" \
+  --out "outputs/review/2026-06-18/tracks-dinov2.jsonl" \
+  --report-out "outputs/review/2026-06-18/team-dinov2-report.json"
+
+python -m samba_futbot.cli team-quality \
+  --tracks "outputs/review/2026-06-18/tracks-dinov2.jsonl" \
+  --out "outputs/review/2026-06-18/team-dinov2-quality.json" \
+  --report-out "outputs/review/2026-06-18/team-dinov2-quality.md"
+```
+
+Reject the candidate when `mapping.mapping_ambiguous` is true or when the
+quality report does not improve over HSV on the same tracks.
+
+## 10. Local Tests
 
 ```bash
 python -m unittest discover -s tests
