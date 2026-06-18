@@ -21,6 +21,24 @@ from samba_futbot.cli import (
 
 
 class CliHelpersTest(unittest.TestCase):
+    def test_assign_teams_embedding_command_parses(self):
+        args = build_parser().parse_args(
+            [
+                "assign-teams-embedding",
+                "--video",
+                "match.mp4",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "embedding-tracks.jsonl",
+                "--report-out",
+                "embedding-report.json",
+            ]
+        )
+
+        self.assertEqual(args.model_id, "facebook/dinov2-small")
+        self.assertEqual(args.samples_per_track, 8)
+
     def test_frame_anchors_uses_regular_step(self):
         self.assertEqual(_frame_anchors(926, start=150, step=150), [150, 300, 450, 600, 750, 900])
 

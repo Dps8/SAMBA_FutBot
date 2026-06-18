@@ -49,6 +49,9 @@ robot soccer videos. The current implementation covers:
   the annotation template.
 - Team-assignment quality gates for missing evidence, temporal instability and
   collapse toward one color.
+- Optional track-level DINOv2 appearance clustering aligned one-to-one with HSV
+  votes, with an ambiguity report and the same `team-quality` gate used for a
+  baseline/candidate comparison.
 - Structural calibration checks for corner order, convexity, field coverage and
   extreme perspective skew.
 - A working official-SAM3 adaptation path with portable COCO-RLE data,
@@ -59,7 +62,7 @@ The repository intentionally avoids non-permitted detector-specific training
 paths. The training preparation is kept neutral/SAM-compatible through
 manifests, COCO boxes and RLE masks.
 
-Current local verification: 256 `unittest` tests pass on Windows with
+Current local verification: 261 `unittest` tests pass on Windows with
 `PYTHONPATH=src`; the ByteTrack-only test is skipped when the optional
 Supervision package is absent. The same test passes in the remote GPU venv with
 Supervision 0.27.

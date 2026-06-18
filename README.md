@@ -657,6 +657,24 @@ python -m samba_futbot.cli team-quality `
 tracks ambiguos y colapso hacia un solo color. Esta auditoria debe aprobarse
 antes de defender posesion o control territorial por equipo.
 
+Cuando HSV colapsa ambos equipos hacia un solo color, se puede evaluar una
+segunda fuente estructural sin repetir SAM3:
+
+```powershell
+python -m samba_futbot.cli assign-teams-embedding `
+  --video "data\raw\video.mov" `
+  --tracks "outputs\tracks\clip-tracks-with-teams.jsonl" `
+  --out "outputs\tracks\clip-tracks-dinov2.jsonl" `
+  --report-out "outputs\qa\clip-dinov2-team-report.json"
+```
+
+El comando muestrea varias apariencias por track, extrae embeddings DINOv2,
+forma dos grupos estructurales y escoge la correspondencia uno-a-uno con
+`blue/yellow` que mejor concuerda con los votos HSV existentes. El reporte
+marca `mapping_ambiguous` cuando el color no aporta evidencia suficiente. La
+variante solo debe promoverse si su salida mejora `team-quality` sobre los
+mismos tracks; no sustituye automaticamente el baseline.
+
 Validar una calibracion antes de confiar en distancias y velocidades metricas:
 
 ```powershell

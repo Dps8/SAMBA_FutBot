@@ -78,6 +78,13 @@ from .showcase import (
 from .situations import analyze_situations
 from .submission import write_submission_report
 from .team import assign_robot_teams_from_video
+from .team_embedding import (
+    align_clusters_to_teams,
+    assign_embedding_teams,
+    cluster_track_embeddings,
+    embedding_team_report,
+    extract_dinov2_track_embeddings,
+)
 from .team_quality import analyze_team_quality_file, write_team_quality_markdown
 from .tracking import track_detections
 from .training_export import export_balanced_coco_subset, export_coco_detection
@@ -824,6 +831,21 @@ def build_parser() -> argparse.ArgumentParser:
     assign_teams.add_argument("--out", required=True)
     assign_teams.add_argument("--config", default="config/default.yml")
     assign_teams.set_defaults(func=cmd_assign_teams)
+
+    embedding_teams = sub.add_parser(
+        "assign-teams-embedding",
+        help="Evaluar equipos por apariencia DINOv2 y alinearlos con votos HSV.",
+    )
+    embedding_teams.add_argument("--video", required=True)
+    embedding_teams.add_argument("--tracks", required=True)
+    embedding_teams.add_argument("--out", required=True)
+    embedding_teams.add_argument("--report-out", required=True)
+    embedding_teams.add_argument("--model-id", default="facebook/dinov2-small")
+    embedding_teams.add_argument("--samples-per-track", type=int, default=8)
+    embedding_teams.add_argument("--min-frame-gap", type=int, default=10)
+    embedding_teams.add_argument("--batch-size", type=int, default=16)
+    embedding_teams.add_argument("--device", default=None)
+    embedding_teams.set_defaults(func=cmd_assign_teams_embedding)
 
     events = sub.add_parser("events", help="Detectar eventos de juego.")
     events.add_argument("--tracks", required=True)
@@ -3483,6 +3505,48 @@ def cmd_assign_teams(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def cmd_assign_teams_embedding(args: argparse.Namespace) -> None:
+    tracks = read_detections(args.tracks)
+    existing_votes: dict[int, list[str]] = {}
+    for detection in tracks:
+        if (
+            detection.class_name in ROBOT_CLASSES
+            and detection.track_id is not None
+            and detection.team in {"blue", "yellow"}
+        ):
+            existing_votes.setdefault(detection.track_id, []).append(detection.team)
+    existing_team_by_track = {
+        track_id: sorted(set(votes), key=lambda team: (-votes.count(team), team))[0]
+        for track_id, votes in existing_votes.items()
+    }
+    embeddings, samples_by_track = extract_dinov2_track_embeddings(
+        args.video,
+        tracks,
+        model_id=args.model_id,
+        samples_per_track=args.samples_per_track,
+        min_frame_gap=args.min_frame_gap,
+        batch_size=args.batch_size,
+        device=args.device,
+    )
+    cluster_by_track = cluster_track_embeddings(embeddings)
+    cluster_to_team, mapping_metadata = align_clusters_to_teams(
+        cluster_by_track,
+        existing_team_by_track,
+    )
+    assigned = assign_embedding_teams(tracks, cluster_by_track, cluster_to_team)
+    report = embedding_team_report(
+        embeddings,
+        samples_by_track,
+        cluster_by_track,
+        cluster_to_team,
+        mapping_metadata,
+        model_id=args.model_id,
+    )
+    write_detections(args.out, assigned)
+    write_json(args.report_out, report)
+    print(json.dumps({"tracks_out": args.out, "report_out": args.report_out, **report}, indent=2))
 
 
 def cmd_events(args: argparse.Namespace) -> None:
