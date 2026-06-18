@@ -4,10 +4,28 @@ from pathlib import Path
 
 import numpy as np
 
-from samba_futbot.sam3_adapter import _detections_from_processed
+from samba_futbot.sam3_adapter import (
+    _configure_predictor_object_limit,
+    _detections_from_processed,
+)
 
 
 class Sam3AdapterTest(unittest.TestCase):
+    def test_configures_object_limit_on_legacy_official_predictor(self):
+        class Model:
+            max_num_objects = 10000
+            num_obj_for_compile = 16
+            world_size = 1
+
+        class Predictor:
+            model = Model()
+
+        predictor = Predictor()
+        _configure_predictor_object_limit(predictor, 12)
+
+        self.assertEqual(predictor.model.max_num_objects, 12)
+        self.assertEqual(predictor.model.num_obj_for_compile, 12)
+
     def test_sam3_xywh_probs_are_scaled_to_pixel_xyxy(self):
         masks = np.zeros((1, 100, 200), dtype=bool)
         masks[20:60, 20:80] = True

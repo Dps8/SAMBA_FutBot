@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import inspect
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -11,6 +12,9 @@ import numpy as np
 
 from .io_utils import write_detections
 from .types import Detection
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def flatten_prompt_config(prompts: dict[str, Any]) -> list[tuple[str, str]]:
@@ -105,7 +109,8 @@ def _run_official_sam3(
             max_num_objects=max_num_objects,
         )
     else:
-        predictor = build_sam3_video_predictor(max_num_objects=max_num_objects)
+        predictor = build_sam3_video_predictor()
+        _configure_predictor_object_limit(predictor, max_num_objects)
     _patch_start_session_for_init_signature(predictor)
 
     detections: list[Detection] = []
@@ -206,6 +211,26 @@ def _release_accelerator_cache() -> None:
         return
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def _configure_predictor_object_limit(predictor: Any, max_num_objects: int) -> None:
+    """Apply the masklet cap across official SAM3 predictor API versions."""
+    limit = int(max_num_objects)
+    if limit <= 0:
+        return
+    model = getattr(predictor, "model", None)
+    if model is None:
+        return
+    if hasattr(model, "max_num_objects"):
+        model.max_num_objects = limit
+    if hasattr(model, "num_obj_for_compile"):
+        world_size = max(1, int(getattr(model, "world_size", 1)))
+        model.num_obj_for_compile = max(1, (limit + world_size - 1) // world_size)
+    LOGGER.info(
+        "Applied SAM3 object limit: max_num_objects=%s num_obj_for_compile=%s",
+        getattr(model, "max_num_objects", "unsupported"),
+        getattr(model, "num_obj_for_compile", "unsupported"),
+    )
 
 
 def _track_count(prompt_frame_index: int, max_frames: int | None) -> int | None:
