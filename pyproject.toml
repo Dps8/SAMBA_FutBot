@@ -17,6 +17,7 @@ dependencies = [
   "opencv-python-headless>=4.10",
   "pyyaml>=6.0",
   "tqdm>=4.66",
+  "supervision>=0.25,<0.28",
 ]
 
 [project.optional-dependencies]

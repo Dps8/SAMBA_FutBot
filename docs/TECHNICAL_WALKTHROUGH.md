@@ -859,13 +859,17 @@ Cubierto:
 
 En progreso/falta reforzar:
 
-- aliados vs rivales;
-- eventos deportivos fuertes;
-- visualizacion tipo dashboard/panel;
+- validacion humana de equipos en clips donde los colores colapsan;
+- validacion de `goal_confirmed`/`goal_rejected` sobre un gol real;
 - calibracion real por video/cancha para sustituir la plantilla de homografia;
-- demo final de maximo 2 minutos;
+- seleccion de la demo final de maximo 2 minutos;
 - reel publico de 30 segundos;
-- README final de entrega.
+- capturas y README final de entrega.
+
+La capa deportiva ya genera posesion, pases, intercepciones, tiros, colisiones,
+estados de juego, intervenciones, robots retirados/detenidos y goles auditables.
+La visualizacion tactica ya incluye mapas de calor, zonas, distancias al balon y
+probabilidades heuristicas; una GUI interactiva completa queda como opcional.
 
 ## 10. Como Actualizar GitHub Manualmente
 

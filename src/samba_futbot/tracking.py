@@ -103,8 +103,26 @@ class IouTracker:
 
 
 def track_detections(
-    detections: Iterable[Detection], iou_threshold: float = 0.25, max_age: int = 12
+    detections: Iterable[Detection],
+    iou_threshold: float = 0.25,
+    max_age: int = 12,
+    *,
+    backend: str = "iou",
+    frame_rate: int = 30,
+    track_activation_threshold: float = 0.05,
+    minimum_matching_threshold: float = 0.8,
 ) -> list[Detection]:
+    detections = list(detections)
+    if backend == "bytetrack":
+        return _track_with_bytetrack(
+            detections,
+            max_age=max_age,
+            frame_rate=frame_rate,
+            track_activation_threshold=track_activation_threshold,
+            minimum_matching_threshold=minimum_matching_threshold,
+        )
+    if backend != "iou":
+        raise ValueError(f"Unknown tracker backend: {backend}")
     tracker = IouTracker(iou_threshold=iou_threshold, max_age=max_age)
     by_frame: dict[int, list[Detection]] = defaultdict(list)
     for detection in detections:
@@ -113,4 +131,81 @@ def track_detections(
     tracked: list[Detection] = []
     for frame_index in sorted(by_frame):
         tracked.extend(tracker.update(by_frame[frame_index], frame_index))
+    return tracked
+
+
+def _track_with_bytetrack(
+    detections: list[Detection],
+    *,
+    max_age: int,
+    frame_rate: int,
+    track_activation_threshold: float,
+    minimum_matching_threshold: float,
+) -> list[Detection]:
+    try:
+        import numpy as np
+        import supervision as sv
+    except ImportError as exc:
+        raise RuntimeError(
+            "ByteTrack requires the optional 'supervision' dependency."
+        ) from exc
+    if not detections:
+        return []
+
+    by_frame: dict[int, list[Detection]] = defaultdict(list)
+    classes: set[str] = set()
+    for detection in detections:
+        by_frame[detection.frame_index].append(detection)
+        classes.add(detection.class_name)
+    trackers = {
+        class_name: sv.ByteTrack(
+            track_activation_threshold=track_activation_threshold,
+            lost_track_buffer=max_age,
+            minimum_matching_threshold=minimum_matching_threshold,
+            frame_rate=frame_rate,
+            minimum_consecutive_frames=1,
+        )
+        for class_name in classes
+    }
+    global_ids: dict[tuple[str, int], int] = {}
+    next_global_id = 1
+    tracked: list[Detection] = []
+
+    for frame_index in range(min(by_frame), max(by_frame) + 1):
+        frame_detections = by_frame.get(frame_index, [])
+        by_class: dict[str, list[tuple[int, Detection]]] = defaultdict(list)
+        for source_index, detection in enumerate(frame_detections):
+            by_class[detection.class_name].append((source_index, detection))
+
+        for class_name, tracker in trackers.items():
+            class_items = by_class.get(class_name, [])
+            if not class_items:
+                tracker.update_with_detections(sv.Detections.empty())
+                continue
+            source_indices = np.asarray([item[0] for item in class_items], dtype=int)
+            sv_detections = sv.Detections(
+                xyxy=np.asarray([item[1].box for item in class_items], dtype=float),
+                confidence=np.asarray([item[1].score for item in class_items], dtype=float),
+                class_id=np.zeros(len(class_items), dtype=int),
+                data={"source_index": source_indices},
+            )
+            updated = tracker.update_with_detections(sv_detections)
+            assigned_sources: set[int] = set()
+            for source_index, local_track_id in zip(
+                updated.data.get("source_index", []),
+                updated.tracker_id,
+                strict=True,
+            ):
+                source_index = int(source_index)
+                key = (class_name, int(local_track_id))
+                if key not in global_ids:
+                    global_ids[key] = next_global_id
+                    next_global_id += 1
+                frame_detections[source_index].track_id = global_ids[key]
+                assigned_sources.add(source_index)
+            for source_index, _ in class_items:
+                if source_index not in assigned_sources:
+                    frame_detections[source_index].track_id = next_global_id
+                    next_global_id += 1
+        tracked.extend(frame_detections)
     return tracked

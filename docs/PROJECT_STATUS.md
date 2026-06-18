@@ -1,6 +1,6 @@
 # SAMBA FutBot Project Status
 
-Last updated: 2026-06-16
+Last updated: 2026-06-18
 
 ## Current State
 
@@ -8,13 +8,20 @@ The project has a working SAM3-centered professional pipeline for top-camera
 robot soccer videos. The current implementation covers:
 
 - SAM3/SAM 3.1 video inference by windows and prompt anchors.
+- Rotating prompt ensembles for long videos: every window records the exact
+  prompt variant it used, while bounded 120-frame windows and explicit CUDA
+  cache release keep official SAM3 viable on a 16 GB GPU.
 - Hybrid ball recovery using SAM3 prompts plus configurable HSV/shape cues.
 - Blue/yellow goal prompts, adaptive color fallback and optional geometric
   opposite-goal inference. The default is now conservative and does not infer
   the missing opposite goal automatically.
 - Tracking, team assignment, possession metrics and event candidates.
+- Optional class-isolated ByteTrack integration through Supervision, with the
+  dependency-free IoU tracker retained as a reproducible fallback.
 - Conservative temporal goal validation that separates `goal_candidate` from
-  `goal_confirmed` and never confirms geometry-only inferred goals.
+  `goal_confirmed` and `goal_rejected`, records rejection reasons and never
+  confirms geometry-only inferred goals. Event cooldown deduplication prevents
+  repeated nearby candidates from inflating match counts.
 - Game-state filtering for `in_play`, `dead_ball`, human intervention, removed
   robots and disabled robots. The top-camera context prompts now include
   configurable human/referee/hand classes so SAM3 can feed that state layer.
@@ -52,8 +59,10 @@ The repository intentionally avoids non-permitted detector-specific training
 paths. The training preparation is kept neutral/SAM-compatible through
 manifests, COCO boxes and RLE masks.
 
-Current local verification: 249 `unittest` tests pass on Windows with
-`PYTHONPATH=src`.
+Current local verification: 256 `unittest` tests pass on Windows with
+`PYTHONPATH=src`; the ByteTrack-only test is skipped when the optional
+Supervision package is absent. The same test passes in the remote GPU venv with
+Supervision 0.27.
 
 ## Generated Evidence
 
@@ -85,8 +94,10 @@ The preview confirms object-priority colors, hidden geometry-only false goals
 and filtered robot overlays on the existing `IMG_9938_f001799_10s` tracks.
 Follow-up local work added ball-aware robot filtering, expanded HSV robot
 recovery boxes and stale overlay suppression in the render. A full top-camera
-and normal-view reprocessing pass is still required before claiming final
-statistics.
+and normal-view reprocessing pass is in progress on June 18 before claiming
+final statistics. The first 300-frame normal-view attempt exposed a reproducible
+16 GB CUDA limit; the long-video profile now uses 120-frame windows and one
+rotating prompt per class.
 
 The June 8 batch processed 14 top-camera track variants and identified four
 strong showcase candidates. It also generated narrative and analysis-freeze

@@ -13,11 +13,20 @@ sam3:
   model_id: facebook/sam3
   backend: official
   max_frames: 300
+  # FutBot has only a handful of simultaneous objects; the official unlimited
+  # default reserves memory for 10,000 masklets and can exhaust a 16 GB GPU.
+  max_num_objects: 16
   prompt_frame_index: 0
   stride: 2
   threshold: 0.45
   mask_threshold: 0.5
   max_prompts_per_class: 6
+  # Keep the strongest prompt in every window and rotate one contextual variant.
+  # This preserves prompt diversity without multiplying full-video inference cost.
+  prompt_window_strategy: rotate
+  prompts_per_class_per_window: 2
+  long_video_threshold_frames: 1800
+  long_video_prompts_per_class_per_window: 1
   use_fa3: false
   offload_video_to_cpu: true
   offload_state_to_cpu: true
@@ -121,8 +130,11 @@ sam3:
       - pelota naranja
 
 tracking:
+  backend: bytetrack
   iou_threshold: 0.25
   max_age: 12
+  track_activation_threshold: 0.05
+  minimum_matching_threshold: 0.8
   min_area:
     ball: 10
     robots: 40

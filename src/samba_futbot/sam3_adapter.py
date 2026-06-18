@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import inspect
 import time
 import uuid
@@ -34,6 +35,7 @@ def run_sam3_video(
     threshold: float = 0.45,
     mask_threshold: float = 0.5,
     use_fa3: bool = False,
+    max_num_objects: int = 16,
     offload_video_to_cpu: bool = True,
     offload_state_to_cpu: bool = True,
     prompt_frame_index: int = 0,
@@ -50,6 +52,7 @@ def run_sam3_video(
             max_frames=max_frames,
             threshold=threshold,
             use_fa3=use_fa3,
+            max_num_objects=max_num_objects,
             offload_video_to_cpu=offload_video_to_cpu,
             offload_state_to_cpu=offload_state_to_cpu,
             prompt_frame_index=prompt_frame_index,
@@ -81,6 +84,7 @@ def _run_official_sam3(
     max_frames: int | None,
     threshold: float,
     use_fa3: bool,
+    max_num_objects: int,
     offload_video_to_cpu: bool,
     offload_state_to_cpu: bool,
     prompt_frame_index: int,
@@ -96,9 +100,12 @@ def _run_official_sam3(
         ) from exc
 
     if "3.1" in model_id:
-        predictor = build_sam3_multiplex_video_predictor(use_fa3=use_fa3)
+        predictor = build_sam3_multiplex_video_predictor(
+            use_fa3=use_fa3,
+            max_num_objects=max_num_objects,
+        )
     else:
-        predictor = build_sam3_video_predictor()
+        predictor = build_sam3_video_predictor(max_num_objects=max_num_objects)
     _patch_start_session_for_init_signature(predictor)
 
     detections: list[Detection] = []
@@ -181,7 +188,24 @@ def _run_official_sam3(
                         "clear_cache_threshold": 0,
                     }
                 )
+            _release_accelerator_cache()
     return detections
+
+
+def _release_accelerator_cache() -> None:
+    """Release tensors left behind by a closed video session.
+
+    The official predictor keeps the model resident, but long prompt sweeps can
+    otherwise accumulate enough cached allocator blocks to exhaust a 16 GB GPU.
+    Importing torch lazily keeps the adapter usable in CPU-only test installs.
+    """
+    gc.collect()
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _track_count(prompt_frame_index: int, max_frames: int | None) -> int | None:

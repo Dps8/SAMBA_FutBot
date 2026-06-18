@@ -107,15 +107,30 @@ Puntos clave:
 
 - `project.drive_root_id`: carpeta publica de Google Drive con los videos.
 - `sam3.model_id`: modelo a usar, por defecto `facebook/sam3`.
+- `sam3.max_num_objects`: limita los masklets simultaneos del predictor oficial
+  a `16`; evita la reserva ilimitada para 10,000 objetos que agota una GPU de
+  16 GB y sigue por encima de los objetos posibles en FutBot.
 - `sam3.prompts.field`: prompts para campo verde.
 - `sam3.prompts.robots`: prompts para robots.
 - `sam3.prompts.ball`: prompts semanticos para pelota.
+- `sam3.prompt_window_strategy`: con `rotate`, cada ventana conserva el prompt
+  principal y alterna variantes de contexto; evita repetir todo el banco de
+  prompts sobre cada fragmento del video.
+- `sam3.prompts_per_class_per_window`: numero maximo de prompts de una clase
+  ejecutados por ventana. Los videos largos rotan uno por clase y usan ventanas
+  de 120 frames, el limite validado para SAM3 oficial con 16 GB de VRAM.
 - `ball_detection.sam3_enabled`: activa la fuente SAM3 para pelota en camara superior.
 - `ball_detection.color_enabled`: activa la fuente de color/forma.
 - `ball_detection.default_profile`: perfil cromatico por defecto, hoy `orange`.
 - `ball_detection.profiles`: rangos HSV configurables para pelota naranja,
   blanca, amarilla u otros perfiles.
 - `team_detection.enabled`: activa clasificacion de robots por equipo.
+- `tracking.backend`: usa `bytetrack` para continuidad con movimiento y
+  oclusiones, o `iou` para el tracker minimo sin dependencias adicionales.
+- `tracking.track_activation_threshold` y
+  `tracking.minimum_matching_threshold`: controlan activacion y asociacion de
+  ByteTrack. Cada clase se rastrea por separado para evitar IDs cruzados entre
+  robots, pelota y porterias.
 - `team_detection.palette`: colores RGB esperados para equipos `blue` y
   `yellow`.
 - `team_detection.max_color_distance`: distancia maxima contra la paleta para
@@ -678,6 +693,10 @@ python -m samba_futbot.cli run-sam3-sweep `
   --prompt-frames "0,300,600" `
   --classes "field,robots"
 ```
+
+El barrido registra en su `manifest.json` los prompts exactos usados por cada
+ventana. Tras cerrar cada sesion libera tambien la cache CUDA, lo que permite
+procesar videos largos sin acumular memoria entre variantes.
 
 Detectar pelota por color/forma:
 

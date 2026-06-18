@@ -8,6 +8,7 @@ from samba_futbot.cli import (
     _context_classes,
     _filtered_prompts,
     _frame_anchors,
+    _prompts_for_window,
     _git_snapshot,
     _game_state_summary,
     _jsonable,
@@ -32,8 +33,10 @@ class CliHelpersTest(unittest.TestCase):
         self.assertEqual(args.suffix, "top-hybrid-ball-v1")
         self.assertIsNone(args.sam3_ball)
         self.assertIsNone(args.color_ball)
-        self.assertEqual(args.ball_window_size, 220)
-        self.assertEqual(args.ball_step, 150)
+        self.assertEqual(args.field_window_size, 120)
+        self.assertEqual(args.field_step, 120)
+        self.assertEqual(args.ball_window_size, 120)
+        self.assertEqual(args.ball_step, 120)
         self.assertEqual(args.ball_threshold, 0.05)
         self.assertEqual(args.orange_min_area, 300.0)
         self.assertEqual(args.orange_max_per_frame, 6)
@@ -271,6 +274,23 @@ class CliHelpersTest(unittest.TestCase):
         )
 
         self.assertEqual(filtered, {"goal_blue": ["a", "b"], "goal_yellow": ["d", "e"]})
+
+    def test_prompts_for_window_keeps_primary_and_rotates_context(self):
+        prompts = {
+            "robots": ["robot", "small robot", "dark robot", "soccer robot"],
+            "ball": ["ball"],
+        }
+
+        first = _prompts_for_window(
+            prompts, window_index=0, strategy="rotate", per_class=2
+        )
+        second = _prompts_for_window(
+            prompts, window_index=1, strategy="rotate", per_class=2
+        )
+
+        self.assertEqual(first["robots"], ["robot", "small robot"])
+        self.assertEqual(second["robots"], ["robot", "dark robot"])
+        self.assertEqual(first["ball"], ["ball"])
 
     def test_detect_orange_ball_accepts_custom_profile(self):
         args = build_parser().parse_args(

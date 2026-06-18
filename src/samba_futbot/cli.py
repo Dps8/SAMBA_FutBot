@@ -140,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--stride", type=int, default=None)
     run.add_argument("--prompt-frame-index", type=int, default=None)
     run.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=None)
+    run.add_argument("--max-num-objects", type=int, default=None)
     run.add_argument("--offload-video-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     run.add_argument("--offload-state-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     run.set_defaults(func=cmd_run_sam3)
@@ -157,6 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--backend", choices=["official", "transformers"], default=None)
     sweep.add_argument("--model-id", default=None)
     sweep.add_argument("--use-fa3", action=argparse.BooleanOptionalAction, default=None)
+    sweep.add_argument("--max-num-objects", type=int, default=None)
     sweep.add_argument("--offload-video-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     sweep.add_argument("--offload-state-to-cpu", action=argparse.BooleanOptionalAction, default=None)
     sweep.add_argument("--clip-windows", action=argparse.BooleanOptionalAction, default=True)
@@ -490,10 +492,10 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--video", required=True)
     process.add_argument("--results-dir", default="outputs")
     process.add_argument("--suffix", default="full-windowed-orange-v2-clipped")
-    process.add_argument("--field-window-size", type=int, default=300)
-    process.add_argument("--ball-window-size", type=int, default=220)
-    process.add_argument("--field-step", type=int, default=300)
-    process.add_argument("--ball-step", type=int, default=150)
+    process.add_argument("--field-window-size", type=int, default=120)
+    process.add_argument("--ball-window-size", type=int, default=120)
+    process.add_argument("--field-step", type=int, default=120)
+    process.add_argument("--ball-step", type=int, default=120)
     process.add_argument("--field-start", type=int, default=0)
     process.add_argument("--ball-start", type=int, default=150)
     process.add_argument("--field-threshold", type=float, default=0.45)
@@ -506,6 +508,9 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--merge-dedupe-iou", type=float, default=0.85)
     process.add_argument("--track-iou-threshold", type=float, default=0.05)
     process.add_argument("--track-max-age", type=int, default=20)
+    process.add_argument("--tracker-backend", choices=["iou", "bytetrack"], default=None)
+    process.add_argument("--track-activation-threshold", type=float, default=None)
+    process.add_argument("--track-minimum-matching-threshold", type=float, default=None)
     process.add_argument("--possession-radius-px", type=float, default=None)
     process.add_argument("--collision-radius-px", type=float, default=None)
     process.add_argument("--goal-x-margin-ratio", type=float, default=None)
@@ -562,8 +567,8 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--video", required=True)
     top_camera.add_argument("--results-dir", default="outputs")
     top_camera.add_argument("--suffix", default="top-hybrid-ball-v1")
-    top_camera.add_argument("--field-window-size", type=int, default=300)
-    top_camera.add_argument("--field-step", type=int, default=300)
+    top_camera.add_argument("--field-window-size", type=int, default=120)
+    top_camera.add_argument("--field-step", type=int, default=120)
     top_camera.add_argument("--field-start", type=int, default=0)
     top_camera.add_argument("--field-threshold", type=float, default=0.45)
     top_camera.add_argument("--field-dedupe-iou", type=float, default=0.90)
@@ -576,14 +581,17 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--color-goals", action=argparse.BooleanOptionalAction, default=None)
     top_camera.add_argument("--sam3-ball", action=argparse.BooleanOptionalAction, default=None)
     top_camera.add_argument("--color-ball", action=argparse.BooleanOptionalAction, default=None)
-    top_camera.add_argument("--ball-window-size", type=int, default=220)
-    top_camera.add_argument("--ball-step", type=int, default=150)
+    top_camera.add_argument("--ball-window-size", type=int, default=120)
+    top_camera.add_argument("--ball-step", type=int, default=120)
     top_camera.add_argument("--ball-start", type=int, default=0)
     top_camera.add_argument("--ball-threshold", type=float, default=0.05)
     top_camera.add_argument("--ball-dedupe-iou", type=float, default=0.70)
     top_camera.add_argument("--merge-dedupe-iou", type=float, default=0.85)
     top_camera.add_argument("--track-iou-threshold", type=float, default=0.05)
     top_camera.add_argument("--track-max-age", type=int, default=20)
+    top_camera.add_argument("--tracker-backend", choices=["iou", "bytetrack"], default=None)
+    top_camera.add_argument("--track-activation-threshold", type=float, default=None)
+    top_camera.add_argument("--track-minimum-matching-threshold", type=float, default=None)
     top_camera.add_argument("--possession-radius-px", type=float, default=None)
     top_camera.add_argument("--collision-radius-px", type=float, default=None)
     top_camera.add_argument("--goal-x-margin-ratio", type=float, default=None)
@@ -796,11 +804,15 @@ def build_parser() -> argparse.ArgumentParser:
     showcase.add_argument("--required-claims", default="ball_tracking,team_possession")
     showcase.set_defaults(func=cmd_showcase_index)
 
-    track = sub.add_parser("track", help="Reparar/asignar IDs con tracker IoU.")
+    track = sub.add_parser("track", help="Reparar/asignar IDs con IoU o ByteTrack.")
     track.add_argument("--detections", required=True)
     track.add_argument("--out", required=True)
     track.add_argument("--iou-threshold", type=float, default=0.25)
     track.add_argument("--max-age", type=int, default=12)
+    track.add_argument("--backend", choices=["iou", "bytetrack"], default="iou")
+    track.add_argument("--frame-rate", type=int, default=30)
+    track.add_argument("--activation-threshold", type=float, default=0.05)
+    track.add_argument("--minimum-matching-threshold", type=float, default=0.8)
     track.set_defaults(func=cmd_track)
 
     assign_teams = sub.add_parser(
@@ -1041,6 +1053,11 @@ def cmd_run_sam3(args: argparse.Namespace) -> None:
             if args.use_fa3 is not None
             else bool(sam_config.get("use_fa3", False))
         ),
+        max_num_objects=(
+            args.max_num_objects
+            if args.max_num_objects is not None
+            else int(sam_config.get("max_num_objects", 16))
+        ),
         offload_video_to_cpu=(
             args.offload_video_to_cpu
             if args.offload_video_to_cpu is not None
@@ -1073,7 +1090,14 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
 
     detection_files: list[Path] = []
     windows: list[dict] = []
-    for prompt_frame in prompt_frames:
+    prompt_strategy = str(sam_config.get("prompt_window_strategy", "all"))
+    prompts_per_window = sam_config.get("prompts_per_class_per_window")
+    long_video_threshold = int(sam_config.get("long_video_threshold_frames", 0))
+    if long_video_threshold > 0 and end_frame >= long_video_threshold:
+        prompts_per_window = sam_config.get(
+            "long_video_prompts_per_class_per_window", prompts_per_window
+        )
+    for window_index, prompt_frame in enumerate(prompt_frames):
         if prompt_frame >= end_frame:
             continue
         window_end = min(prompt_frame + window_size, end_frame)
@@ -1095,10 +1119,16 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
             source_max_frames = window_end - prompt_frame
             source_prompt_frame = 0
             frame_offset = prompt_frame
+        window_prompts = _prompts_for_window(
+            prompts,
+            window_index=window_index,
+            strategy=prompt_strategy,
+            per_class=prompts_per_window,
+        )
         detections = run_sam3_video(
             source_video,
             window_dir,
-            prompts=prompts,
+            prompts=window_prompts,
             backend=args.backend or sam_config.get("backend", "official"),
             model_id=args.model_id or sam_config.get("model_id", "facebook/sam3"),
             max_frames=source_max_frames,
@@ -1110,6 +1140,11 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
                 args.use_fa3
                 if args.use_fa3 is not None
                 else bool(sam_config.get("use_fa3", False))
+            ),
+            max_num_objects=(
+                args.max_num_objects
+                if args.max_num_objects is not None
+                else int(sam_config.get("max_num_objects", 16))
             ),
             offload_video_to_cpu=(
                 args.offload_video_to_cpu
@@ -1133,6 +1168,7 @@ def cmd_run_sam3_sweep(args: argparse.Namespace) -> None:
                 "clip_path": str(clip_path) if clip_path else None,
                 "detections": len(detections),
                 "detections_path": str(detections_path),
+                "prompts": window_prompts,
             }
         )
 
@@ -1687,6 +1723,7 @@ def cmd_refine_ball(args: argparse.Namespace) -> None:
 def cmd_process_video(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     analysis_config = config.get("analysis", {})
+    tracking_config = config.get("tracking", {})
     info = video_info(args.video)
     end_frame = int(info["frames"])
     fps = float(info.get("fps") or analysis_config.get("fps", 30))
@@ -1775,6 +1812,18 @@ def cmd_process_video(args: argparse.Namespace) -> None:
         merged,
         iou_threshold=args.track_iou_threshold,
         max_age=args.track_max_age,
+        backend=args.tracker_backend or str(tracking_config.get("backend", "iou")),
+        frame_rate=max(1, round(fps)),
+        track_activation_threshold=(
+            args.track_activation_threshold
+            if args.track_activation_threshold is not None
+            else float(tracking_config.get("track_activation_threshold", 0.05))
+        ),
+        minimum_matching_threshold=(
+            args.track_minimum_matching_threshold
+            if args.track_minimum_matching_threshold is not None
+            else float(tracking_config.get("minimum_matching_threshold", 0.8))
+        ),
     )
     tracked = _assign_teams_for_process(args.video, tracked, config)
     write_detections(tracks_out, tracked)
@@ -2030,6 +2079,7 @@ def cmd_process_video(args: argparse.Namespace) -> None:
 def cmd_process_top_camera(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     analysis_config = config.get("analysis", {})
+    tracking_config = config.get("tracking", {})
     ball_detection_config = config.get("ball_detection", {})
     sam3_ball_enabled = (
         bool(ball_detection_config.get("sam3_enabled", True))
@@ -2243,6 +2293,18 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
         refined,
         iou_threshold=args.track_iou_threshold,
         max_age=args.track_max_age,
+        backend=args.tracker_backend or str(tracking_config.get("backend", "iou")),
+        frame_rate=max(1, round(fps)),
+        track_activation_threshold=(
+            args.track_activation_threshold
+            if args.track_activation_threshold is not None
+            else float(tracking_config.get("track_activation_threshold", 0.05))
+        ),
+        minimum_matching_threshold=(
+            args.track_minimum_matching_threshold
+            if args.track_minimum_matching_threshold is not None
+            else float(tracking_config.get("minimum_matching_threshold", 0.8))
+        ),
     )
     tracked = _assign_teams_for_process(args.video, tracked, config)
     write_detections(tracks_out, tracked)
@@ -3035,6 +3097,7 @@ def _run_sweep_for_process(
         backend=None,
         model_id=None,
         use_fa3=None,
+        max_num_objects=None,
         offload_video_to_cpu=True,
         offload_state_to_cpu=True,
         clip_windows=args.clip_windows,
@@ -3075,6 +3138,37 @@ def _filtered_prompts(
         class_name: value[:limit] if isinstance(value, list) else value
         for class_name, value in filtered.items()
     }
+
+
+def _prompts_for_window(
+    prompts: dict,
+    *,
+    window_index: int,
+    strategy: str = "all",
+    per_class: int | None = None,
+) -> dict:
+    """Select a bounded, rotating prompt ensemble for one video window."""
+    if strategy == "all" or per_class is None:
+        return prompts
+    if strategy != "rotate":
+        raise ValueError(f"Unknown prompt window strategy: {strategy}")
+    limit = int(per_class)
+    if limit <= 0:
+        return prompts
+
+    selected: dict = {}
+    for class_name, value in prompts.items():
+        if not isinstance(value, list) or len(value) <= limit:
+            selected[class_name] = value
+            continue
+        if limit == 1:
+            selected[class_name] = [value[window_index % len(value)]]
+            continue
+        variants = value[1:]
+        start = window_index % len(variants)
+        rotating = [variants[(start + offset) % len(variants)] for offset in range(limit - 1)]
+        selected[class_name] = [value[0], *rotating]
+    return selected
 
 
 def _resolve_ball_color_profile(
@@ -3357,6 +3451,10 @@ def cmd_track(args: argparse.Namespace) -> None:
         read_detections(args.detections),
         iou_threshold=args.iou_threshold,
         max_age=args.max_age,
+        backend=args.backend,
+        frame_rate=args.frame_rate,
+        track_activation_threshold=args.activation_threshold,
+        minimum_matching_threshold=args.minimum_matching_threshold,
     )
     write_detections(args.out, tracked)
     print(json.dumps({"tracks_out": args.out, "detections": len(tracked)}, indent=2))
