@@ -1,0 +1,13 @@
+{
+  "input_balls": 205,
+  "kept_balls": 203,
+  "removed_balls": 2,
+  "removed_by_reason": {
+    "robot_overlap": 2
+  },
+  "reject_robot_overlap_ratio": 0.2,
+  "require_field_or_human_context": true,
+  "max_ball_area": 2200.0,
+  "out": "outputs/review/2026-06-19/submission_v1_2_sources/IMG_9938-clean-tracks.jsonl",
+  "unique_ball_frames": 203
+}

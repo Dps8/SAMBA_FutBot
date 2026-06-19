@@ -3,6 +3,30 @@
 Generated artifacts for the current SAM3 windowed pipeline are stored under
 `outputs/`.
 
+## Final submission v1.2.0 (19 June 2026)
+
+The final delivery integrates two H.264 formats: a 116-second horizontal demo
+and an 89-second vertical reel. Both show the narrative and analysis modules,
+a real goal sequence with a scoreboard update, two camera views, motion
+prediction, distances in meters, speed in m/s and a heatmap accumulated over
+the complete 12:56 `IMG_9933.MOV` match.
+
+Contextual cleaning limits the overhead clip to one ball and two robots per
+frame. It retained 203 of 205 ball candidates and removed two false positives
+overlapping robots. Robot filtering reduced 2,164 candidates to 1,697
+detections: 292 frames contain two robots, eight contain one, and none contain
+more than two.
+
+Mask segmentation is evaluated with the COCO protocol over 128 annotated
+images. The adapted variant reaches 92.1% global AR@100 and 75.1% robot AP75;
+relative to the baseline, AP improves 56.0% and AP50 improves 52.7%. The small
+ball regression remains in the evidence JSON so the presentation does not hide
+the known limitation.
+
+Final local artifacts are under
+`outputs/review/2026-06-19/submission_v1_2/`. Small versioned evidence is under
+`docs/evidence/`, with verified stills under `docs/assets/`.
+
 ## Full-match top-camera evidence (18 June 2026)
 
 `IMG_9933.MOV` was processed end to end for the submission heatmap: 23,278

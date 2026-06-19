@@ -17,10 +17,10 @@ fuente normativa es `Convocatoria_CopaFutBotMX-Meta-VF-20260429T020141.pdf`.
 | Regla | Estado | Evidencia |
 |---|---|---|
 | 3.5.1 Campo, aliados, rivales y pelota | Cumplido con QA | SAM 3 segmenta campo/robots/pelota; la clasificacion de equipo usa apariencia y puede quedar `unknown` si no supera confianza. Las porterias azul/amarilla tienen prompt y fallback cromatico/geometrico. |
-| 3.5.1 Trayectorias y eventos | Cumplido | Tracks persistentes, trayectoria de pelota, distancia robot-balon, pases, tiros, intercepciones, colisiones, goles candidatos y estados de juego. |
+| 3.5.1 Trayectorias y eventos | Cumplido | Tracks persistentes, trayectoria de pelota, distancia robot-balon, pases, tiros, intercepciones, colisiones, goles candidatos y estados de juego. El video final incluye una secuencia de gol validada por cruce completo de linea y cambio de marcador. |
 | 3.5.2 Visualizacion avanzada | Cumplido | Mapa de calor dinamico y acumulado sobre `IMG_9933.MOV` completo (12:56, 23,278 cuadros), mapa tactico, posesion candidata, flujo, narrativa y vista analitica. |
-| 3.5.3 Demo de hasta 2 min | Cumplido | `SAMBA_FutBot-demo-final.mp4`: aproximadamente 103 s, 1920x1080, original+resultado, narrativa, analisis, multivista, heatmap completo, H.264 y sin audio. Se publica en GitHub Release v1.1.0. |
-| 3.5.3 Reel de al menos 30 s | Archivo listo | `SAMBA_FutBot-reel-instagram.mp4`: aproximadamente 63 s, 1080x1920, H.264, sin audio. Falta publicar en Instagram y reemplazar el enlace provisional del README. |
+| 3.5.3 Demo de hasta 2 min | Cumplido | `SAMBA_FutBot-demo-final.mp4`: 116 s, 1920x1080, original+resultado, narrativa, analisis, prediccion, gol, multivista, heatmap completo, metricas y H.264. Se publica en GitHub Release v1.2.0. |
+| 3.5.3 Reel de al menos 30 s | Archivo listo | `SAMBA_FutBot-reel-instagram.mp4`: 89 s, 1080x1920 y H.264. Falta publicar en Instagram y reemplazar el enlace provisional del README. |
 | 3.5.4 README completo | Cumplido salvo enlace externo | Arquitectura, instalacion, reproduccion, entorno, resultados, capturas, licencia y creditos estan incluidos. |
 
 ## 3.6 Software de terceros
@@ -46,6 +46,10 @@ La corrida completa de `IMG_9933.MOV` declara 23,278 cuadros (12:56), de los
 cuales 23,274 son legibles: pelota en 97.2% y robots en 83.5% de cuadros. El
 mapa de calor usa 23,784 muestras despues de filtros geometricos y de campo
 calibrado sobre toda la duracion.
+La validacion COCO sobre 128 imagenes reporta AR@100 de 92.1%, AP75 de robots
+de 75.1%, mejora relativa de AP de 56.0% y mejora de AP50 de 52.7% despues del
+fine-tuning. El JSON conserva los valores completos por clase y la limitacion
+de la pelota pequena.
 Las distancias y velocidades en metros se calculan con homografia de cancha
 2.43 x 1.82 m sobre asociaciones validas. La fragmentacion del tracking de la
 corrida cromatica completa impide defender posesion por equipo como verdad de

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "samba-futbot"
-version = "1.1.0"
+version = "1.2.0"
 description = "Pipeline reproducible para el reto Copa FutBotMX Vision por Computadora."
 readme = "README.md"
 requires-python = ">=3.12"
