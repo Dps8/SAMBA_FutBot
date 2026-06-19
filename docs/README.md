@@ -9,6 +9,7 @@ la entrega publica.
 
 | Archivo | Proposito |
 |---|---|
+| `PROCESSING_PIPELINE.md` | Arquitectura completa, decisiones, artefactos y reproduccion del pipeline. |
 | `RETO.md` | Resumen local de requisitos de la categoria profesional. |
 | `RESULTS.md` | Resultados procesados, limitaciones conocidas y rutas de artefactos. |
 | `SAM3_FINETUNING.md` | Preparacion de datos, adaptacion de SAM 3 y contrato de evaluacion. |

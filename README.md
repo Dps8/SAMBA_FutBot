@@ -5,6 +5,22 @@ capitulo Vision por Computadora. El objetivo es segmentar y rastrear campo,
 robots y balon en videos de futbol robotico usando SAM 3, y convertir esas
 detecciones en metricas, eventos, mapas tacticos y videos demo.
 
+## Pipeline De Procesamiento
+
+El flujo principal convierte un video en evidencia trazable mediante siete
+etapas: **ingesta y ventanas de video -> segmentacion SAM 3 y pistas de
+color/forma -> fusion con contexto del campo -> filtros y tracking temporal ->
+homografia y estado de juego -> eventos, metricas y QA -> videos, mapas y
+reportes reproducibles**. Cada corrida conserva detecciones, fuentes, IDs,
+configuracion, artefactos y huellas del codigo; las inferencias geometricas y
+los eventos candidatos se etiquetan aparte de las observaciones confirmadas.
+
+La especificacion completa, el diagrama, los criterios de decision, las salidas
+y los comandos de reproduccion estan en
+[`docs/PROCESSING_PIPELINE.md`](docs/PROCESSING_PIPELINE.md). El mismo documento
+se distribuye como archivo independiente en el
+[GitHub Release v1.3.0](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.3.0).
+
 ## Entrega Categoría Profesional 2026
 
 - **Equipo:** Pumas.
@@ -17,6 +33,7 @@ detecciones en metricas, eventos, mapas tacticos y videos demo.
 - **Enlace publico de Instagram:**
   [reel Instagram](https://www.instagram.com/reel/DZweFNTOCxj/?igsh=YnB1cmdhY3Brbmwz).
 - **Matriz de cumplimiento:** [`docs/SUBMISSION_COMPLIANCE.md`](docs/SUBMISSION_COMPLIANCE.md).
+- **Pipeline tecnico completo:** [`docs/PROCESSING_PIPELINE.md`](docs/PROCESSING_PIPELINE.md).
 - **Metricas reproducibles:** [`docs/evidence/`](docs/evidence/).
 - **Licencias y atribuciones:** [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
