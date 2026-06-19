@@ -11,7 +11,7 @@ detecciones en metricas, eventos, mapas tacticos y videos demo.
 - **Institución:** Universidad Nacional Autónoma de México (UNAM).
 - **Integrantes:** Germán Alday Salazar, Raúl García Lemus y Darien Piña Sánchez.
 - **Demo final (116 s, 1920x1080, H.264):**
-  [GitHub Release v1.2.0](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.2.0).
+  [GitHub Release v1.2.1](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.2.1).
 - **Reel listo para Instagram (89 s, 1080x1920, H.264):**
   se incluye en el mismo release.
 - **Enlace publico de Instagram (provisional):**
@@ -25,6 +25,8 @@ de narrativa y analisis, una secuencia real de gol con cambio de marcador, dos
 vistas de camara, distancias y velocidades metricas, prediccion de movimiento,
 mapa tactico, mapa de calor de un partido completo y validacion cuantitativa del
 fine-tuning.
+
+![Enfoques de tiempo, geometria y QA](docs/assets/submission-approach.jpg)
 
 ![Original y resultado SAMBA FutBot](docs/assets/submission-analysis.jpg)
 
@@ -41,8 +43,8 @@ fine-tuning.
 La evidencia numerica de la corrida completa esta en
 [`full-match-IMG_9933-summary.json`](docs/evidence/full-match-IMG_9933-summary.json),
 acompanada por el reporte exacto del heatmap y las metricas operativas. El
-manifiesto de video registra codec, resolucion, duracion, entradas y alcance de
-cada afirmacion.
+[`manifiesto v1.2.1`](docs/evidence/submission-video-manifest-v1.2.1.json)
+registra codec, resolucion, duracion, entradas y alcance de cada afirmacion.
 
 La ruta actual no depende solo de un prompt a SAM 3. Para la camara superior se
 usa una estrategia hibrida:
@@ -69,7 +71,7 @@ usa una estrategia hibrida:
 - Campo oficial usado para homografia: `2.43 m x 1.82 m`.
 - Pelota oficial considerada: pelota naranja tipo golf, `42 mm`; el color se
   maneja como perfil configurable, no como unica fuente de deteccion.
-- Suite local: 288 pruebas y 6 subpruebas aprobadas.
+- Suite local: 291 pruebas y 6 subpruebas aprobadas.
 - Clip superior limpio: maximo dos robots y una pelota por cuadro; 205
   candidatos de pelota revisados, 203 aceptados y dos falsos puntos sobre
   robots eliminados por contexto.
@@ -83,7 +85,11 @@ usa una estrategia hibrida:
 - Metricas en metros: se calculan con homografia sobre cancha de 2.43 x 1.82 m
   y se rotulan por alcance; goles y posesion automatica permanecen candidatos
   cuando no superan la compuerta QA.
-- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_2`.
+- Gol de `video-427`: confirmado automaticamente en el cuadro 365 con pelota
+  rastreada, cruce dirigido en el cuadro 356, persistencia temporal y contacto
+  con la pared trasera exigido por las reglas; la evidencia registra seis
+  cuadros fuera y seis dentro.
+- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_2_1`.
 - Evidencia pequena y versionable: `docs/evidence` y `docs/assets`.
 
 ## Estructura Del Repositorio
@@ -92,6 +98,7 @@ usa una estrategia hibrida:
 config/
   default.yml                         Configuracion principal: prompts, SAM3, tracking y analisis.
   calibrations/IMG_9933_top.yml       Homografia validada de la camara superior.
+  calibrations/video-427-goal-line.yml Plano y region de la porteria del gol validado.
   top_camera_homography_template.yml  Plantilla de homografia con medidas oficiales.
 
 data/
@@ -100,12 +107,13 @@ data/
   manifests/                          Indices generados del Drive.
 
 docs/
+  README.md                           Indice y alcance de la documentacion publica.
   RETO.md                             Resumen local del reto.
-  RESULTS.md                          Resultados parciales y observaciones.
+  RESULTS.md                          Resultados, limitaciones y evidencia procesada.
+  SAM3_FINETUNING.md                  Protocolo de adaptacion y evaluacion.
   SUBMISSION_COMPLIANCE.md            Evidencia por requisito de entrega.
-  TECHNICAL_WALKTHROUGH.md            Explicacion tecnica extendida del repo.
   assets/                             Capturas finales versionadas.
-  evidence/                           Metricas, QA y comparacion de fine-tuning.
+  evidence/                           Metricas, eventos, QA y manifiesto final.
 
 scripts/
   build_submission_videos.py          Construye demo horizontal y reel vertical.
@@ -269,6 +277,40 @@ python -m samba_futbot.cli validate-goals `
   --out "outputs\events\clip-validated-events.json" `
   --config config/default.yml
 ```
+
+Hay dos rutas auditables para confirmar un gol:
+
+1. Si SAM 3 detecta una `goal_blue` o `goal_yellow` real, se exige que la
+   pelota venga desde fuera, se aproxime y permanezca dentro varios cuadros.
+2. Si la porteria no tiene una deteccion semantica fiable, se configura su
+   plano en pixeles. La pelota rastreada debe cruzar el segmento en la direccion
+   de entrada, persistir al menos tres cuadros del lado interior y tocar la
+   pared trasera calibrada, como exigen las reglas 4.4.5 y 7.4.4. Las lineas
+   calibradas nunca se infieren silenciosamente: sus puntos quedan versionados.
+
+Reproduccion del gol usado en el demo final:
+
+```powershell
+python -m samba_futbot.cli events `
+  --tracks "outputs\tracks\video-427_singular_display-full-windowed-orange-v2-tracks.jsonl" `
+  --out "outputs\events\video-427-calibrated-goal-events.json" `
+  --summary-out "outputs\events\video-427-calibrated-goal-summary.json" `
+  --frame-width 1455 `
+  --goal-line 900 1320 1455 970 `
+  --goal-back-wall-line 900 1450 1455 1030 `
+  --goal-line-side blue `
+  --goal-line-entry-sign positive `
+  --goal-line-min-inside-frames 3 `
+  --goal-region 850 1330 1455 930 1455 1300 1050 1510
+```
+
+El resultado real es `goal_confirmed` en el cuadro 365 con confianza `0.92`:
+el cruce ocurre en el 356 y el contacto trasero se verifica en el 365.
+La visualizacion dibuja la caja y trayectoria de la pelota, la region de
+porteria, la linea de gol, la pared trasera y el contador temporal `0/3` a
+`3/3`; el marcador solo cambia despues de cumplir las cuatro condiciones.
+La definicion se toma de las reglas oficiales 4.4.5 y 7.4.4:
+[un gol es valido cuando el balon toca la pared trasera](https://secihti.mx/wp-content/uploads/2026/01/Reglas_Copa_FutBotMX_v3_2026-01-21.pdf).
 
 Plantilla de homografia: `config/top_camera_homography_template.yml`.
 
@@ -993,11 +1035,6 @@ del dataset preparado para adaptacion compatible con SAM.
 
 ## Resultados Generados
 
-Estado de avance y estimado de cierre:
-
-- `docs/PROJECT_STATUS.md`
-- `docs/REMOTE_TEST_CHECKLIST.md`
-
 Cada corrida puede producir:
 
 - `detections.jsonl`: una deteccion por linea, con clase, score, caja, mascara y frame.
@@ -1006,7 +1043,8 @@ Cada corrida puede producir:
 - `metrics.json`: cobertura, fragmentacion, velocidades y conteos.
   Incluye posesion por equipo, dominancia de posesion y racha mas larga de
   posesion.
-- `events.json`: tiros, pases, posesion, colisiones o goles candidatos.
+- `events.json`: tiros, pases, posesion, colisiones y goles candidatos,
+  confirmados o rechazados con causa auditable.
 - `event-summary.json`: marcador candidato por equipo, goles por porteria,
   pases, intercepciones, tiros y colisiones.
 - `field-analysis.json`: coordenadas metricas, zonas, velocidad en m/s y reglas.
@@ -1143,6 +1181,8 @@ python scripts/build_submission_videos.py `
   --analysis-video "outputs\videos\clip-analysis-demo.mp4" `
   --normal-video "outputs\videos\normal-view-demo.mp4" `
   --goal-video "data\raw\Meta_Glasses\17Abril\video-427_singular_display.mov" `
+  --goal-tracks "outputs\tracks\video-427_singular_display-full-windowed-orange-v2-tracks.jsonl" `
+  --goal-events "outputs\events\video-427-calibrated-goal-events.json" `
   --heatmap-video "outputs\submission\robots-heatmap.mp4" `
   --heatmap-image "outputs\submission\robots-heatmap.png" `
   --field-map "outputs\field_analysis\clip-field-map.png" `
@@ -1188,8 +1228,9 @@ pytest
 
 ## Documentacion Extendida
 
-- `docs/TECHNICAL_WALKTHROUGH.md`: explicacion larga del codigo y despliegue.
-- `docs/RESULTS.md`: resultados parciales procesados.
+- `docs/README.md`: indice de documentos y evidencia publica.
+- `docs/RETO.md`: requisitos del reto resumidos para consulta local.
+- `docs/RESULTS.md`: resultados procesados, limitaciones y artefactos.
 - `docs/SAM3_FINETUNING.md`: contrato de datos, ejecucion y evaluacion para
   adaptar SAM3 con el repositorio oficial.
 - `docs/SUBMISSION_COMPLIANCE.md`: matriz final contra 3.2.2, 3.5, 3.6 y 3.7.

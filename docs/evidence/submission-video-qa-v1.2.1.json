@@ -1,0 +1,60 @@
+{
+  "schema": "samba_futbot.submission_video_qa.v2",
+  "release": "v1.2.1",
+  "validated_at": "2026-06-18",
+  "products": [
+    {
+      "kind": "demo",
+      "path": "SAMBA_FutBot-demo-final.mp4",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "frames": 3480,
+      "duration_seconds": 116.0,
+      "sha256": "e66f31a97471d2c4f6c61b09282132693792b4e4d01a11b65ac3da994814db5c",
+      "full_decode": "passed",
+      "checked_seconds": [5.5, 9, 25, 30, 36, 36.8, 52, 69, 79, 108]
+    },
+    {
+      "kind": "reel",
+      "path": "SAMBA_FutBot-reel-instagram.mp4",
+      "codec": "h264",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "frames": 2670,
+      "duration_seconds": 89.0,
+      "sha256": "81fe3314e7ecd0f23edbffb38f3947e37ef84f8b42828b163d4a3a52b7b7bf9b",
+      "full_decode": "passed",
+      "checked_seconds": [5, 8, 21, 26, 30, 31, 43, 50, 57, 81]
+    }
+  ],
+  "visual_assertions": {
+    "approach_descriptions_are_legible": true,
+    "goal_ball_box_track_and_confidence_are_visible": true,
+    "goal_region_and_calibrated_line_are_visible": true,
+    "score_stays_0_0_before_back_wall_contact": true,
+    "score_changes_to_yellow_1_blue_0_after_back_wall_contact": true,
+    "prediction_legend_is_visible": true,
+    "full_match_heatmap_is_visible": true,
+    "quantitative_validation_is_legible": true,
+    "team_and_institution_credits_are_visible": true
+  },
+  "goal_evidence": {
+    "video": "video-427_singular_display.mov",
+    "track_id": 5,
+    "crossing_frame": 356,
+    "back_wall_contact_frame": 365,
+    "minimum_inside_frames": 3,
+    "observed_inside_frames": [356, 357, 358, 359, 360, 361],
+    "confidence": 0.92,
+    "validation": "calibrated_goal_line_and_back_wall_contact"
+  },
+  "claim_scope": {
+    "shot": "detected from tracked-ball speed and direction",
+    "goal": "automatically confirmed from directed crossing, temporal persistence and contact with the calibrated back wall required by rules 4.4.5 and 7.4.4",
+    "metric_units": "homography-calibrated 2.43 x 1.82 m field",
+    "segmentation": "COCO mask AP/AR over 128 annotated images"
+  }
+}

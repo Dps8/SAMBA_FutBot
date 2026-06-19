@@ -1,5 +1,5 @@
 {
-  "schema": "samba_futbot.submission_videos.v4",
+  "schema": "samba_futbot.submission_videos.v5",
   "competition": "Copa FutBotMX 2026",
   "challenge": "Reto de Visión por Computadora - Categoría Profesional",
   "team": "Pumas",
@@ -12,25 +12,25 @@
   "products": [
     {
       "kind": "demo",
-      "path": "outputs\\review\\2026-06-19\\submission_v1_2\\SAMBA_FutBot-demo-final.mp4",
+      "path": "outputs\\review\\2026-06-19\\submission_v1_2_1\\SAMBA_FutBot-demo-final.mp4",
       "codec": "h264",
       "width": 1920,
       "height": 1080,
       "fps": 30.0,
       "frames": 3480,
       "duration_seconds": 116.0,
-      "bytes": 22925526
+      "bytes": 22902566
     },
     {
       "kind": "reel",
-      "path": "outputs\\review\\2026-06-19\\submission_v1_2\\SAMBA_FutBot-reel-instagram.mp4",
+      "path": "outputs\\review\\2026-06-19\\submission_v1_2_1\\SAMBA_FutBot-reel-instagram.mp4",
       "codec": "h264",
       "width": 1080,
       "height": 1920,
       "fps": 30.0,
       "frames": 2670,
       "duration_seconds": 89.0,
-      "bytes": 31190653
+      "bytes": 30617210
     }
   ],
   "inputs": {
@@ -38,6 +38,8 @@
     "analysis_video": "outputs\\review\\2026-06-19\\submission_v1_2_sources\\IMG_9938-clean-analysis-metric.mp4",
     "normal_video": "outputs\\videos\\video-429-full-windowed-orange-prompt-demo.mp4",
     "goal_video": "data\\raw\\Meta_Glasses\\17Abril\\video-427_singular_display.mov",
+    "goal_tracks": "outputs\\tracks\\video-427_singular_display-full-windowed-orange-v2-tracks.jsonl",
+    "goal_events": "outputs\\review\\2026-06-19\\goal_search_normal\\video-427-calibrated-goal-events.json",
     "heatmap_video": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-heatmap-timelapse-qa.mp4",
     "heatmap_image": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-heatmap-qa.png",
     "field_map": "outputs\\review\\2026-06-19\\rebuild\\analysis_9933\\IMG_9933-marker-tactical-map.png",
@@ -53,6 +55,6 @@
     "metric_units": "homography-calibrated field: 2.43 x 1.82 m",
     "segmentation_metrics": "COCO mask AP/AR over 128 annotated images",
     "operational_validation": "one ball per frame, field/referee context, robot duplicate suppression",
-    "events": "goal visually validated in video-427 by complete goal-line crossing"
+    "events": "goal automatically confirmed from tracked-ball crossing, persistence and calibrated back-wall contact"
   }
 }

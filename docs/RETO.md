@@ -48,3 +48,18 @@ El indexador incluido encuentra:
 - `18abril`
 - subcarpetas de camaras
 - videos `.mov` publicos
+
+## Regla De Gol Usada Por El Pipeline
+
+El reglamento de juego, apartados 4.4.5 y 7.4.4, define un gol valido cuando el
+balon hace contacto con la pared trasera de la porteria. Cruzar la linea de gol
+por si solo no basta. Por ello, la ruta calibrada del pipeline exige:
+
+1. pelota unica con tracking continuo;
+2. cruce exterior-interior del segmento de gol;
+3. persistencia dentro de la porteria;
+4. contacto con la pared trasera calibrada.
+
+Un cruce sin contacto trasero produce `goal_rejected` y no modifica el
+marcador. Fuente:
+[Reglas de Futbol para la Copa FutBotMX 2026](https://secihti.mx/wp-content/uploads/2026/01/Reglas_Copa_FutBotMX_v3_2026-01-21.pdf).

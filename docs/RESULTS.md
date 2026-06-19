@@ -3,7 +3,7 @@
 Generated artifacts for the current SAM3 windowed pipeline are stored under
 `outputs/`.
 
-## Final submission v1.2.0 (19 June 2026)
+## Final submission v1.2.1 (19 June 2026)
 
 The final delivery integrates two H.264 formats: a 116-second horizontal demo
 and an 89-second vertical reel. Both show the narrative and analysis modules,
@@ -24,8 +24,17 @@ ball regression remains in the evidence JSON so the presentation does not hide
 the known limitation.
 
 Final local artifacts are under
-`outputs/review/2026-06-19/submission_v1_2/`. Small versioned evidence is under
+`outputs/review/2026-06-19/submission_v1_2_1/`. Small versioned evidence is under
 `docs/evidence/`, with verified stills under `docs/assets/`.
+
+The goal sequence in `video-427` is machine-verifiable rather than only a
+visual edit. The tracked ball crosses an explicitly calibrated blue-goal line
+at frame 356, after six outside frames, remains on the interior side for six
+frames and contacts the calibrated back wall at frame 365. This final condition
+implements rules 4.4.5 and 7.4.4. The emitted `goal_confirmed` event has
+confidence 0.92 and updates the confirmed yellow scoreboard to 1-0. The demo
+overlays the ball box, track, trajectory, goal region, goal line, back wall and
+temporal persistence counter.
 
 ## Full-match top-camera evidence (18 June 2026)
 
@@ -255,9 +264,12 @@ review for candidate-only events and only marks it ready for an explicit
 `goal_confirmed` event. Confirmation now requires a non-inferred goal detection,
 a tracked ball entering from outside with measurable motion toward the goal,
 and persistence inside the goal across multiple frames.
-Applying the validator to the 14 existing June 8 top-camera runs found zero
-goal candidates and therefore zero confirmed goals; a real goal sequence is
-still needed for visual end-to-end validation.
+Applying the semantic-goal validator to the 14 existing June 8 top-camera runs
+found zero goal candidates. The normal-view `video-427` sequence now supplies
+the missing end-to-end validation through the explicit calibrated-geometry
+route: one tracked ball, directed exterior-to-interior crossing, temporal
+persistence and contact with the back wall produce a real `goal_confirmed`
+event.
 Possession metrics also expose a dominant team with frame and ratio margin,
 which gives a compact game-control signal for reports.
 Shot candidates now require the ball to move toward the left/right goal side,

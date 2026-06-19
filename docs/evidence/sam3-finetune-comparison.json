@@ -732,7 +732,7 @@
   },
   "inputs": {
     "ground_truth": "outputs/review/2026-06-15/sam3_training/coco_robots_ball_v1/annotations/val.json",
-    "baseline": "/home/robocup/.samba_futbot_work/SAMBA_FutBot/outputs/review/2026-06-15/sam3_finetune/robots_ball_baseline_val_n128_v1/dumps/samba_futbot/coco_predictions_segm.json",
-    "candidate": "/home/robocup/.samba_futbot_work/SAMBA_FutBot/outputs/review/2026-06-15/sam3_finetune/robots_ball_heads_balanced_e3_n248_v1/dumps/samba_futbot/coco_predictions_segm.json"
+    "baseline": "outputs/review/2026-06-15/sam3_finetune/robots_ball_baseline_val_n128_v1/dumps/samba_futbot/coco_predictions_segm.json",
+    "candidate": "outputs/review/2026-06-15/sam3_finetune/robots_ball_heads_balanced_e3_n248_v1/dumps/samba_futbot/coco_predictions_segm.json"
   }
 }

@@ -17,9 +17,9 @@ fuente normativa es `Convocatoria_CopaFutBotMX-Meta-VF-20260429T020141.pdf`.
 | Regla | Estado | Evidencia |
 |---|---|---|
 | 3.5.1 Campo, aliados, rivales y pelota | Cumplido con QA | SAM 3 segmenta campo/robots/pelota; la clasificacion de equipo usa apariencia y puede quedar `unknown` si no supera confianza. Las porterias azul/amarilla tienen prompt y fallback cromatico/geometrico. |
-| 3.5.1 Trayectorias y eventos | Cumplido | Tracks persistentes, trayectoria de pelota, distancia robot-balon, pases, tiros, intercepciones, colisiones, goles candidatos y estados de juego. El video final incluye una secuencia de gol validada por cruce completo de linea y cambio de marcador. |
+| 3.5.1 Trayectorias y eventos | Cumplido | Tracks persistentes, trayectoria de pelota, distancia robot-balon, pases, tiros, intercepciones, colisiones, goles y estados de juego. En `video-427`, la caja de pelota cruza la linea calibrada, persiste tres cuadros y contacta la pared trasera conforme a 4.4.5/7.4.4; entonces emite `goal_confirmed` y actualiza el marcador. |
 | 3.5.2 Visualizacion avanzada | Cumplido | Mapa de calor dinamico y acumulado sobre `IMG_9933.MOV` completo (12:56, 23,278 cuadros), mapa tactico, posesion candidata, flujo, narrativa y vista analitica. |
-| 3.5.3 Demo de hasta 2 min | Cumplido | `SAMBA_FutBot-demo-final.mp4`: 116 s, 1920x1080, original+resultado, narrativa, analisis, prediccion, gol, multivista, heatmap completo, metricas y H.264. Se publica en GitHub Release v1.2.0. |
+| 3.5.3 Demo de hasta 2 min | Cumplido | `SAMBA_FutBot-demo-final.mp4`: 116 s, 1920x1080, original+resultado, narrativa, analisis, prediccion, explicacion visual del detector de gol, multivista, heatmap completo, metricas y H.264. Se publica en GitHub Release v1.2.1. |
 | 3.5.3 Reel de al menos 30 s | Archivo listo | `SAMBA_FutBot-reel-instagram.mp4`: 89 s, 1080x1920 y H.264. Falta publicar en Instagram y reemplazar el enlace provisional del README. |
 | 3.5.4 README completo | Cumplido salvo enlace externo | Arquitectura, instalacion, reproduccion, entorno, resultados, capturas, licencia y creditos estan incluidos. |
 
