@@ -117,6 +117,10 @@ def detect_colored_goals(
     max_area: float = 80_000.0,
     min_extent: float = 0.18,
     max_per_frame_per_class: int = 1,
+    min_boundary_support: float = 0.15,
+    stabilize_boxes: bool = True,
+    box_ema_alpha: float = 0.25,
+    max_center_jump_px: float = 240.0,
 ) -> list[Detection]:
     cv2 = require_cv2()
     resolved_profiles = profiles or DEFAULT_GOAL_COLOR_PROFILES
@@ -210,7 +214,14 @@ def detect_colored_goals(
         max_per_frame_per_class=max_per_frame_per_class,
         require_field_overlap=require_field_overlap,
         field_margin_px=field_margin_px,
+        min_boundary_support=min_boundary_support,
     )
+    if stabilize_boxes:
+        constrained = stabilize_goal_detections(
+            constrained,
+            ema_alpha=box_ema_alpha,
+            max_center_jump_px=max_center_jump_px,
+        )
     write_detections(out_path, constrained)
     return constrained
 
@@ -225,11 +236,14 @@ def enforce_goal_frame_constraints(
     inferred_goal_score: float = 0.28,
     opposite_goal_axis: str = "auto",
     field_margin_px: float = 18.0,
+    min_boundary_support: float = 0.0,
 ) -> list[Detection]:
     if max_per_frame_per_class <= 0:
         raise ValueError("max_per_frame_per_class must be positive.")
     if opposite_goal_axis not in {"auto", "horizontal", "vertical"}:
         raise ValueError("opposite_goal_axis must be auto, horizontal, or vertical.")
+    if not 0.0 <= min_boundary_support <= 1.0:
+        raise ValueError("min_boundary_support must be between 0 and 1.")
 
     fields_by_frame: dict[int, list[Detection]] = {}
     for det in field_detections or []:
@@ -248,11 +262,24 @@ def enforce_goal_frame_constraints(
         goals_by_key.setdefault((det.frame_index, det.class_name), []).append(det)
 
     kept_goals: list[Detection] = []
-    for candidates in goals_by_key.values():
+    for (frame_index, _), candidates in goals_by_key.items():
+        fields = fields_by_frame.get(frame_index, [])
+        ranked = [
+            candidate
+            for candidate in candidates
+            if _goal_boundary_support(candidate, fields) is None
+            or _goal_boundary_support(candidate, fields) >= min_boundary_support
+        ]
+        if not ranked:
+            continue
         kept_goals.extend(
             sorted(
-                candidates,
-                key=lambda det: (det.score, det.area or 0.0),
+                ranked,
+                key=lambda det: (
+                    _goal_candidate_rank(det, fields),
+                    det.score,
+                    det.area or 0.0,
+                ),
                 reverse=True,
             )[:max_per_frame_per_class]
         )
@@ -267,6 +294,77 @@ def enforce_goal_frame_constraints(
         )
     return sorted(
         passthrough + kept_goals,
+        key=lambda det: (det.frame_index, det.class_name, det.track_id or -1, det.score),
+    )
+
+
+def stabilize_goal_detections(
+    detections: list[Detection],
+    *,
+    ema_alpha: float = 0.25,
+    max_center_jump_px: float = 240.0,
+) -> list[Detection]:
+    if not 0.0 < ema_alpha <= 1.0:
+        raise ValueError("ema_alpha must be in (0, 1].")
+    if max_center_jump_px <= 0:
+        raise ValueError("max_center_jump_px must be positive.")
+
+    passthrough = [det for det in detections if det.class_name not in GOAL_CLASSES]
+    goals_by_class: dict[str, list[Detection]] = {}
+    for detection in detections:
+        if detection.class_name in GOAL_CLASSES:
+            goals_by_class.setdefault(detection.class_name, []).append(detection)
+
+    stabilized: list[Detection] = []
+    for class_name, goals in goals_by_class.items():
+        previous_box: tuple[float, float, float, float] | None = None
+        previous_frame: int | None = None
+        for detection in sorted(goals, key=lambda item: item.frame_index):
+            box = detection.box
+            extra = dict(detection.extra or {})
+            if previous_box is not None and previous_frame is not None:
+                consecutive = detection.frame_index - previous_frame == 1
+                jump = _center_distance(box, previous_box)
+                if consecutive and jump > max_center_jump_px:
+                    box = previous_box
+                    extra.update(
+                        {
+                            "temporal_outlier_replaced": True,
+                            "rejected_box": list(detection.box),
+                            "center_jump_px": jump,
+                        }
+                    )
+                elif consecutive:
+                    box = tuple(
+                        (1.0 - ema_alpha) * previous + ema_alpha * current
+                        for previous, current in zip(previous_box, box)
+                    )
+                    extra.update(
+                        {
+                            "box_stabilization": "ema",
+                            "box_ema_alpha": ema_alpha,
+                            "raw_box": list(detection.box),
+                        }
+                    )
+            stabilized.append(
+                Detection(
+                    frame_index=detection.frame_index,
+                    class_name=class_name,
+                    score=detection.score,
+                    box=box,
+                    prompt=detection.prompt,
+                    object_id=detection.object_id,
+                    track_id=detection.track_id,
+                    team=detection.team,
+                    mask_path=detection.mask_path,
+                    area=_box_area(box),
+                    extra=extra,
+                )
+            )
+            previous_box = box
+            previous_frame = detection.frame_index
+    return sorted(
+        passthrough + stabilized,
         key=lambda det: (det.frame_index, det.class_name, det.track_id or -1, det.score),
     )
 
@@ -347,6 +445,47 @@ def _mirror_box_across_field(
 def _box_area(box: tuple[float, float, float, float]) -> float:
     x1, y1, x2, y2 = box
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+
+def _goal_boundary_support(
+    goal: Detection,
+    fields: list[Detection],
+) -> float | None:
+    if not fields:
+        return None
+    field = max(fields, key=lambda detection: detection.area or _box_area(detection.box))
+    field_x1, field_y1, field_x2, field_y2 = field.box
+    field_width = max(1.0, field_x2 - field_x1)
+    field_height = max(1.0, field_y2 - field_y1)
+    aspect_ratio = max(field_width, field_height) / min(field_width, field_height)
+    if aspect_ratio < 1.2:
+        return None
+    centroid_x, centroid_y = goal.centroid
+    if field_height > field_width:
+        coordinate = centroid_y
+        lower, upper = field_y1, field_y2
+    else:
+        coordinate = centroid_x
+        lower, upper = field_x1, field_x2
+    axis_length = max(1.0, upper - lower)
+    boundary_distance = min(abs(coordinate - lower), abs(coordinate - upper))
+    return max(0.0, 1.0 - boundary_distance / (0.40 * axis_length))
+
+
+def _goal_candidate_rank(goal: Detection, fields: list[Detection]) -> float:
+    boundary_support = _goal_boundary_support(goal, fields)
+    if boundary_support is None:
+        return goal.score
+    return 0.65 * boundary_support + 0.35 * goal.score
+
+
+def _center_distance(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    first_center = ((first[0] + first[2]) / 2.0, (first[1] + first[3]) / 2.0)
+    second_center = ((second[0] + second[2]) / 2.0, (second[1] + second[3]) / 2.0)
+    return ((first_center[0] - second_center[0]) ** 2 + (first_center[1] - second_center[1]) ** 2) ** 0.5
 
 
 def _broad_goal_profiles() -> dict[str, dict[str, tuple[int, int, int]]]:

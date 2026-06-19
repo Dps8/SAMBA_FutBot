@@ -171,6 +171,10 @@ goal_detection:
   max_area: 80000
   min_extent: 0.18
   max_per_frame_per_class: 1
+  min_boundary_support: 0.15
+  stabilize_boxes: true
+  box_ema_alpha: 0.25
+  max_center_jump_px: 240
   broad_profiles:
     goal_blue:
       hsv_lower: [80, 25, 15]

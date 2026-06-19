@@ -3265,6 +3265,10 @@ def _detect_color_goals_for_process(
         max_area=float(goal_config.get("max_area", 80_000.0)),
         min_extent=float(goal_config.get("min_extent", 0.18)),
         max_per_frame_per_class=int(goal_config.get("max_per_frame_per_class", 1)),
+        min_boundary_support=float(goal_config.get("min_boundary_support", 0.15)),
+        stabilize_boxes=bool(goal_config.get("stabilize_boxes", True)),
+        box_ema_alpha=float(goal_config.get("box_ema_alpha", 0.25)),
+        max_center_jump_px=float(goal_config.get("max_center_jump_px", 240.0)),
     )
 
 
@@ -3279,6 +3283,7 @@ def _enforce_goal_constraints_for_process(detections: list, config: dict) -> lis
         inferred_goal_score=float(goal_config.get("inferred_goal_score", 0.28)),
         opposite_goal_axis=str(goal_config.get("opposite_goal_axis", "auto")),
         field_margin_px=float(goal_config.get("field_margin_px", 18.0)),
+        min_boundary_support=float(goal_config.get("min_boundary_support", 0.15)),
     )
 
 

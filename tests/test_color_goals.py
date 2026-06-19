@@ -8,6 +8,7 @@ from samba_futbot.color_goals import (
     adapt_goal_color_profiles_from_detections,
     detect_colored_goals,
     enforce_goal_frame_constraints,
+    stabilize_goal_detections,
 )
 from samba_futbot.types import Detection
 from samba_futbot.video import require_cv2
@@ -240,6 +241,42 @@ class ColorGoalsTest(unittest.TestCase):
         self.assertEqual(goals["goal_blue"].box, (20, 130, 60, 150))
         self.assertEqual(goals["goal_blue"].extra["inference_axis"], "vertical")
         self.assertEqual(goals["goal_blue"].extra["evidence"], "geometry_only")
+
+    def test_goal_constraints_prefer_end_line_over_larger_sideline_region(self):
+        detections = [
+            Detection(0, "field", 0.9, (0, 100, 1000, 1800), area=1_700_000),
+            Detection(0, "goal_blue", 0.95, (850, 300, 990, 1150), area=60_000),
+            Detection(0, "goal_blue", 0.85, (280, 1640, 720, 1860), area=50_000),
+            Detection(0, "goal_blue", 0.46, (480, 1780, 500, 1800), area=400),
+        ]
+
+        constrained = enforce_goal_frame_constraints(
+            detections,
+            field_detections=detections,
+            require_field_overlap=True,
+            min_boundary_support=0.15,
+        )
+
+        blue = [det for det in constrained if det.class_name == "goal_blue"]
+        self.assertEqual(len(blue), 1)
+        self.assertEqual(blue[0].box, (280, 1640, 720, 1860))
+
+    def test_goal_box_stabilization_smooths_jitter_and_replaces_jump(self):
+        detections = [
+            Detection(0, "goal_blue", 0.9, (20, 130, 60, 150)),
+            Detection(1, "goal_blue", 0.9, (24, 126, 64, 154)),
+            Detection(2, "goal_blue", 0.9, (120, 30, 150, 120)),
+        ]
+
+        stabilized = stabilize_goal_detections(
+            detections,
+            ema_alpha=0.25,
+            max_center_jump_px=30,
+        )
+
+        self.assertEqual(stabilized[1].box, (21.0, 129.0, 61.0, 151.0))
+        self.assertEqual(stabilized[2].box, stabilized[1].box)
+        self.assertTrue(stabilized[2].extra["temporal_outlier_replaced"])
 
     def test_geometry_only_seed_does_not_block_observed_blue_goal(self):
         cv2 = require_cv2()
