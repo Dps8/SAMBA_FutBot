@@ -14,8 +14,8 @@ detecciones en metricas, eventos, mapas tacticos y videos demo.
   [GitHub Release v1.3.0](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.3.0).
 - **Reel listo para Instagram (82.3 s, 1080x1920, H.264):**
   se incluye en el mismo release.
-- **Enlace publico de Instagram (provisional):**
-  [reel pendiente de publicacion](https://www.instagram.com/reel/PENDIENTE_PUBLICACION/).
+- **Enlace publico de Instagram:**
+  [reel Instagram](https://www.instagram.com/reel/DZweFNTOCxj/?igsh=YnB1cmdhY3Brbmwz).
 - **Matriz de cumplimiento:** [`docs/SUBMISSION_COMPLIANCE.md`](docs/SUBMISSION_COMPLIANCE.md).
 - **Metricas reproducibles:** [`docs/evidence/`](docs/evidence/).
 - **Licencias y atribuciones:** [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
