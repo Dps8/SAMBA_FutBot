@@ -193,6 +193,9 @@ robot_filter:
   containment_threshold: 0.82
   iou_threshold: 0.55
   min_center_distance_px: 28
+  max_center_distance_ratio: 0.45
+  min_center_y_ratio: null
+  max_center_y_ratio: null
   protect_near_ball_px: 180
 
 ball_detection:

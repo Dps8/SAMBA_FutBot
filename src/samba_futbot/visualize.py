@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from .events import estimate_possession
+from .field_analysis import FieldCalibration, load_field_calibration
 from .io_utils import read_detections, read_json
 from .play_state import BALL_CLASSES, ROBOT_CLASSES, distance
 from .types import Detection
@@ -101,6 +102,7 @@ def render_demo_video(
     box_thickness: int = 3,
     visual_hold_frames: int = 12,
     show_team_labels: bool = False,
+    field_calibration_path: str | Path | None = None,
 ) -> Path:
     if style not in {"narrative", "analysis"}:
         raise ValueError("style must be 'narrative' or 'analysis'.")
@@ -112,6 +114,9 @@ def render_demo_video(
     possession = estimate_possession(detections)
     events_by_frame = _events_by_frame(events_path)
     freeze_types = _parse_freeze_event_types(freeze_event_types)
+    field_calibration = (
+        load_field_calibration(field_calibration_path) if field_calibration_path else None
+    )
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -150,7 +155,11 @@ def render_demo_video(
         annotated = frame.copy()
         frame_dets = by_frame.get(frame_index, [])
         ball = _best_ball(frame_dets)
-        distances = robot_ball_distances(frame_dets, ball)
+        distances = robot_ball_distances(
+            frame_dets,
+            ball,
+            field_calibration=field_calibration,
+        )
         current_overlay_dets = [
             det
             for det in frame_dets
@@ -194,7 +203,16 @@ def render_demo_video(
                 recent_detections[key] = (det, frame_index)
         if style == "analysis":
             _draw_robot_ball_distances(cv2, annotated, distances, label_boxes=label_boxes)
-            _draw_ball_analysis(cv2, annotated, ball, previous_ball, width, label_boxes=label_boxes)
+            _draw_ball_analysis(
+                cv2,
+                annotated,
+                ball,
+                previous_ball,
+                width,
+                fps=fps,
+                field_calibration=field_calibration,
+                label_boxes=label_boxes,
+            )
         _draw_header(cv2, frame, "Original")
         event = _recent_event(events_by_frame, frame_index)
         _draw_header(
@@ -790,21 +808,29 @@ def _freeze_overlay_summary(
     return lines[:4]
 
 
-def robot_ball_distances(frame_dets: list[Detection], ball: Detection | None = None) -> list[dict]:
+def robot_ball_distances(
+    frame_dets: list[Detection],
+    ball: Detection | None = None,
+    *,
+    field_calibration: FieldCalibration | None = None,
+) -> list[dict]:
     ball = ball or _best_ball(frame_dets)
     if ball is None:
         return []
     records = []
     for robot in [det for det in frame_dets if det.class_name in ROBOT_CLASSES]:
-        records.append(
-            {
+        record = {
                 "track_id": robot.track_id,
                 "team": robot.team or "unknown",
                 "distance_px": distance(robot.centroid, ball.centroid),
                 "robot": robot,
                 "ball": ball,
             }
-        )
+        if field_calibration is not None:
+            robot_m = field_calibration.transform_point(robot.centroid)
+            ball_m = field_calibration.transform_point(ball.centroid)
+            record["distance_m"] = distance(robot_m, ball_m)
+        records.append(record)
     return sorted(records, key=lambda item: (float(item["distance_px"]), item["track_id"] or -1))
 
 
@@ -842,6 +868,8 @@ def _distance_label(record: dict, *, show_team: bool = True) -> str:
     team = str(record.get("team") or "unknown")
     track_id = record.get("track_id")
     robot_label = _actor_label(team, track_id, show_team=show_team)
+    if isinstance(record.get("distance_m"), int | float):
+        return f"{robot_label} {float(record['distance_m']):.2f}m"
     return f"{robot_label} {float(record.get('distance_px', 0.0)):.0f}px"
 
 
@@ -863,10 +891,15 @@ def _draw_robot_ball_distances(
             int((robot_center[0] + ball_center[0]) / 2),
             int((robot_center[1] + ball_center[1]) / 2),
         )
+        distance_text = (
+            f"{record['distance_m']:.2f}m"
+            if isinstance(record.get("distance_m"), int | float)
+            else f"{record['distance_px']:.0f}px"
+        )
         _draw_label(
             cv2,
             frame,
-            f"{record['distance_px']:.0f}px",
+            distance_text,
             midpoint,
             color_bgr,
             scale=0.48,
@@ -937,15 +970,23 @@ def _draw_ball_analysis(
     previous_ball: Detection | None,
     frame_width: int,
     *,
+    fps: float = 30.0,
+    field_calibration: FieldCalibration | None = None,
     label_boxes: list[tuple[int, int, int, int]] | None = None,
 ) -> None:
     if ball is None:
         return
     pressure = shot_probability(ball, previous_ball, frame_width)
     x, y = [int(round(v)) for v in ball.centroid]
-    text = f"ball v={pressure['speed_px_frame']:.1f}px/f"
+    metric_speed = _metric_ball_speed(ball, previous_ball, field_calibration, fps)
+    if metric_speed is not None and metric_speed <= 3.0:
+        text = f"ball v={metric_speed:.2f}m/s"
+    elif metric_speed is not None:
+        text = "ball v=fuera QA"
+    else:
+        text = f"ball v={pressure['speed_px_frame']:.1f}px/f"
     if pressure["target_side"]:
-        text += f" | goal {pressure['target_side']} p={pressure['probability']:.0%}"
+        text += f" | goal {pressure['target_side']} p.heur={pressure['probability']:.0%}"
     _draw_label(
         cv2,
         frame,
@@ -956,3 +997,39 @@ def _draw_ball_analysis(
         anchor_box=tuple(int(round(v)) for v in ball.box),
         occupied_boxes=label_boxes,
     )
+    if previous_ball is not None:
+        dx = ball.centroid[0] - previous_ball.centroid[0]
+        dy = ball.centroid[1] - previous_ball.centroid[1]
+        horizon_frames = max(1, int(round(fps * 0.5)))
+        predicted = (
+            int(round(x + dx * horizon_frames)),
+            int(round(y + dy * horizon_frames)),
+        )
+        predicted = (
+            max(0, min(frame.shape[1] - 1, predicted[0])),
+            max(0, min(frame.shape[0] - 1, predicted[1])),
+        )
+        cv2.arrowedLine(frame, (x, y), predicted, (80, 230, 255), 3, tipLength=0.12)
+        _draw_label(
+            cv2,
+            frame,
+            "pred 0.5s",
+            predicted,
+            (80, 230, 255),
+            scale=0.48,
+            occupied_boxes=label_boxes,
+        )
+
+
+def _metric_ball_speed(
+    ball: Detection,
+    previous_ball: Detection | None,
+    calibration: FieldCalibration | None,
+    fps: float,
+) -> float | None:
+    if previous_ball is None or calibration is None or fps <= 0:
+        return None
+    current_m = calibration.transform_point(ball.centroid)
+    previous_m = calibration.transform_point(previous_ball.centroid)
+    frame_delta = max(1, ball.frame_index - previous_ball.frame_index)
+    return distance(previous_m, current_m) * fps / frame_delta

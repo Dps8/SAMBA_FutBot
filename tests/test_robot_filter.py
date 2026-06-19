@@ -71,6 +71,57 @@ class RobotFilterTest(unittest.TestCase):
 
         self.assertEqual(filter_robot_detections(detections), detections)
 
+    def test_filter_uses_box_scaled_center_distance_for_fragments(self):
+        detections = [
+            Detection(0, "robots", 0.90, (100, 100, 260, 300), track_id=1),
+            Detection(0, "robots", 0.80, (215, 245, 285, 305), track_id=2),
+            Detection(0, "robots", 0.85, (500, 100, 650, 300), track_id=3),
+        ]
+
+        filtered = filter_robot_detections(
+            detections,
+            iou_threshold=0.95,
+            containment_threshold=0.95,
+            max_center_distance_ratio=0.55,
+        )
+
+        self.assertEqual([det.track_id for det in filtered], [1, 3])
+
+    def test_filter_applies_vertical_play_area_gate(self):
+        detections = [
+            Detection(0, "robots", 0.90, (10, 50, 60, 120), track_id=1),
+            Detection(0, "robots", 0.80, (10, 600, 60, 700), track_id=2),
+        ]
+
+        filtered = filter_robot_detections(
+            detections,
+            frame_height=1000,
+            min_center_y_ratio=0.5,
+        )
+
+        self.assertEqual([det.track_id for det in filtered], [2])
+
+    def test_filter_prefers_full_semantic_mask_over_color_fragment(self):
+        detections = [
+            Detection(0, "robots", 0.50, (100, 100, 260, 300), track_id=1),
+            Detection(
+                0,
+                "robots",
+                0.85,
+                (210, 245, 280, 305),
+                prompt="hsv_dark_robot_fallback",
+                track_id=2,
+                extra={"source": "color_robots"},
+            ),
+        ]
+
+        filtered = filter_robot_detections(
+            detections,
+            max_per_frame=1,
+        )
+
+        self.assertEqual([det.track_id for det in filtered], [1])
+
 
 if __name__ == "__main__":
     unittest.main()

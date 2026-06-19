@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .ball_refinement import refine_ball_trajectory
+from .ball_context_filter import filter_contextual_ball_candidates
 from .ball_review import audit_ball_review_file, export_reviewed_ball_manifest_file
 from .calibration import calibration_quality_report, render_calibration_frame, write_calibration_quality
 from .config import deep_get, load_config
@@ -57,7 +58,7 @@ from .holdout import select_ball_review_set_file, select_human_holdout_file
 from .heatmap import render_activity_heatmap
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
-from .play_state import ROBOT_CLASSES
+from .play_state import BALL_CLASSES, ROBOT_CLASSES
 from .pseudolabels import export_pseudolabel_candidates
 from .qa import (
     collect_quality_reports,
@@ -202,6 +203,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--robot-fallback-max-aspect-ratio", type=float, default=float("inf")
     )
     filter_tracks.set_defaults(func=cmd_filter_track_artifacts)
+
+    filter_robots = sub.add_parser(
+        "filter-robots",
+        help="Suprimir fragmentos/duplicados que representan el mismo robot.",
+    )
+    filter_robots.add_argument("--tracks", required=True)
+    filter_robots.add_argument("--out", required=True)
+    filter_robots.add_argument("--frame-width", type=int, default=None)
+    filter_robots.add_argument("--frame-height", type=int, default=None)
+    filter_robots.add_argument("--max-per-frame", type=int, default=None)
+    filter_robots.add_argument("--min-area", type=float, default=0.0)
+    filter_robots.add_argument("--max-area-ratio", type=float, default=None)
+    filter_robots.add_argument("--containment-threshold", type=float, default=0.82)
+    filter_robots.add_argument("--iou-threshold", type=float, default=0.55)
+    filter_robots.add_argument("--min-center-distance-px", type=float, default=0.0)
+    filter_robots.add_argument("--max-center-distance-ratio", type=float, default=0.0)
+    filter_robots.add_argument("--min-center-y-ratio", type=float, default=None)
+    filter_robots.add_argument("--max-center-y-ratio", type=float, default=None)
+    filter_robots.add_argument("--protect-near-ball-px", type=float, default=0.0)
+    filter_robots.set_defaults(func=cmd_filter_robots)
+
+    filter_ball_context = sub.add_parser(
+        "filter-ball-context",
+        help="Rechazar falsas pelotas y conservar una trayectoria contextual.",
+    )
+    filter_ball_context.add_argument("--detections", required=True)
+    filter_ball_context.add_argument("--out", required=True)
+    filter_ball_context.add_argument("--report-out", default=None)
+    filter_ball_context.add_argument("--robot-overlap-ratio", type=float, default=0.20)
+    filter_ball_context.add_argument(
+        "--require-field-or-human-context",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    filter_ball_context.add_argument("--max-ball-area", type=float, default=None)
+    filter_ball_context.add_argument("--max-jump-px", type=float, default=45.0)
+    filter_ball_context.add_argument("--preferred-area", type=float, default=650.0)
+    filter_ball_context.set_defaults(func=cmd_filter_ball_context)
 
     pseudolabels = sub.add_parser(
         "export-pseudolabels",
@@ -655,6 +694,9 @@ def build_parser() -> argparse.ArgumentParser:
     top_camera.add_argument("--robot-filter-containment-threshold", type=float, default=None)
     top_camera.add_argument("--robot-filter-iou-threshold", type=float, default=None)
     top_camera.add_argument("--robot-filter-min-center-distance-px", type=float, default=None)
+    top_camera.add_argument("--robot-filter-max-center-distance-ratio", type=float, default=None)
+    top_camera.add_argument("--robot-filter-min-center-y-ratio", type=float, default=None)
+    top_camera.add_argument("--robot-filter-max-center-y-ratio", type=float, default=None)
     top_camera.add_argument("--robot-filter-protect-near-ball-px", type=float, default=None)
     top_camera.add_argument("--refine-max-jump-px", type=float, default=35.0)
     top_camera.add_argument("--refine-preferred-area", type=float, default=680.0)
@@ -983,6 +1025,7 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--box-thickness", type=int, default=3)
     render.add_argument("--visual-hold-frames", type=int, default=12)
     render.add_argument("--show-team-labels", action=argparse.BooleanOptionalAction, default=False)
+    render.add_argument("--field-calibration", default=None)
     render.set_defaults(func=cmd_render_demo)
 
     heatmap = sub.add_parser(
@@ -1323,6 +1366,64 @@ def cmd_filter_track_artifacts(args: argparse.Namespace) -> None:
     )
     write_detections(args.out, filtered)
     report["out"] = args.out
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def cmd_filter_robots(args: argparse.Namespace) -> None:
+    detections = read_detections(args.tracks)
+    filtered = filter_robot_detections(
+        detections,
+        frame_width=args.frame_width,
+        frame_height=args.frame_height,
+        max_per_frame=args.max_per_frame,
+        min_area=args.min_area,
+        max_area_ratio=args.max_area_ratio,
+        containment_threshold=args.containment_threshold,
+        iou_threshold=args.iou_threshold,
+        min_center_distance_px=args.min_center_distance_px,
+        max_center_distance_ratio=args.max_center_distance_ratio,
+        min_center_y_ratio=args.min_center_y_ratio,
+        max_center_y_ratio=args.max_center_y_ratio,
+        protect_near_ball_px=args.protect_near_ball_px,
+    )
+    write_detections(args.out, filtered)
+    print(
+        json.dumps(
+            {
+                "out": args.out,
+                "input_detections": len(detections),
+                "detections": len(filtered),
+                "removed": len(detections) - len(filtered),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def cmd_filter_ball_context(args: argparse.Namespace) -> None:
+    filtered, report = filter_contextual_ball_candidates(
+        read_detections(args.detections),
+        reject_robot_overlap_ratio=args.robot_overlap_ratio,
+        require_field_or_human_context=args.require_field_or_human_context,
+        max_ball_area=args.max_ball_area,
+    )
+    refined = refine_ball_trajectory(
+        filtered,
+        max_jump_px=args.max_jump_px,
+        preferred_area=args.preferred_area,
+    )
+    write_detections(args.out, refined)
+    report.update(
+        {
+            "out": args.out,
+            "unique_ball_frames": len(
+                {det.frame_index for det in refined if det.class_name in BALL_CLASSES}
+            ),
+        }
+    )
+    if args.report_out:
+        write_json(args.report_out, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
@@ -2371,6 +2472,21 @@ def cmd_process_top_camera(args: argparse.Namespace) -> None:
                 robot_filter_config.get("min_center_distance_px"),
                 default=0.0,
             ),
+            max_center_distance_ratio=_resolve_optional_float(
+                args.robot_filter_max_center_distance_ratio,
+                robot_filter_config.get("max_center_distance_ratio"),
+                default=0.0,
+            ),
+            min_center_y_ratio=_resolve_optional_float(
+                args.robot_filter_min_center_y_ratio,
+                robot_filter_config.get("min_center_y_ratio"),
+                default=None,
+            ),
+            max_center_y_ratio=_resolve_optional_float(
+                args.robot_filter_max_center_y_ratio,
+                robot_filter_config.get("max_center_y_ratio"),
+                default=None,
+            ),
             protect_near_ball_px=_resolve_optional_float(
                 args.robot_filter_protect_near_ball_px,
                 robot_filter_config.get("protect_near_ball_px"),
@@ -2921,6 +3037,7 @@ def _render_pipeline_videos(
             box_thickness=args.box_thickness,
             visual_hold_frames=args.visual_hold_frames,
             show_team_labels=args.show_team_labels,
+            field_calibration_path=getattr(args, "field_calibration", None),
         )
     return rendered
 
@@ -3857,6 +3974,7 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         box_thickness=args.box_thickness,
         visual_hold_frames=args.visual_hold_frames,
         show_team_labels=args.show_team_labels,
+        field_calibration_path=args.field_calibration,
     )
     print(json.dumps({"video": str(out), "style": args.style}, indent=2))
 

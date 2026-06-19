@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
+from samba_futbot.field_analysis import FieldCalibration
 from samba_futbot.types import Detection
 from samba_futbot.visualize import (
     _blend_box,
@@ -101,6 +102,23 @@ class VisualizeTest(unittest.TestCase):
         self.assertEqual([item["track_id"] for item in distances], [2, 3])
         self.assertEqual(distances[0]["team"], "blue")
         self.assertLess(distances[0]["distance_px"], distances[1]["distance_px"])
+
+    def test_robot_ball_distances_report_meters_with_calibration(self):
+        calibration = FieldCalibration.from_mapping(
+            {
+                "field": {"length_m": 2.0, "width_m": 1.0},
+                "image_points": [[0, 0], [100, 0], [100, 50], [0, 50]],
+            }
+        )
+        frame = [
+            Detection(0, "ball", 1.0, (45, 20, 55, 30), track_id=1),
+            Detection(0, "robots", 1.0, (20, 20, 30, 30), track_id=2),
+        ]
+
+        distances = robot_ball_distances(frame, field_calibration=calibration)
+
+        self.assertAlmostEqual(distances[0]["distance_m"], 0.5, places=6)
+        self.assertEqual(_distance_label(distances[0], show_team=False), "robot #2 0.50m")
 
     def test_class_color_prioritizes_object_over_team(self):
         self.assertEqual(class_color("ball", team="blue"), (255, 130, 20))

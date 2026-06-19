@@ -68,6 +68,46 @@ class CliHelpersTest(unittest.TestCase):
         self.assertAlmostEqual(args.robot_fallback_max_extent, 0.72)
         self.assertAlmostEqual(args.robot_fallback_max_aspect_ratio, 1.75)
 
+    def test_filter_robots_command_parses_scaled_distance_and_play_gate(self):
+        args = build_parser().parse_args(
+            [
+                "filter-robots",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "clean.jsonl",
+                "--max-per-frame",
+                "2",
+                "--max-center-distance-ratio",
+                "0.55",
+                "--min-center-y-ratio",
+                "0.45",
+            ]
+        )
+
+        self.assertEqual(args.max_per_frame, 2)
+        self.assertAlmostEqual(args.max_center_distance_ratio, 0.55)
+        self.assertAlmostEqual(args.min_center_y_ratio, 0.45)
+
+    def test_filter_ball_context_command_parses(self):
+        args = build_parser().parse_args(
+            [
+                "filter-ball-context",
+                "--detections",
+                "tracks.jsonl",
+                "--out",
+                "clean.jsonl",
+                "--robot-overlap-ratio",
+                "0.25",
+                "--max-ball-area",
+                "2200",
+            ]
+        )
+
+        self.assertTrue(args.require_field_or_human_context)
+        self.assertAlmostEqual(args.robot_overlap_ratio, 0.25)
+        self.assertEqual(args.max_ball_area, 2200)
+
     @patch("samba_futbot.cli.write_json")
     @patch("samba_futbot.cli.read_detections", return_value=[])
     @patch("samba_futbot.cli.render_activity_heatmap")
