@@ -3,10 +3,10 @@
 Generated artifacts for the current SAM3 windowed pipeline are stored under
 `outputs/`.
 
-## Final submission v1.2.2 (19 June 2026)
+## Final submission v1.3.0 (19 June 2026)
 
-The final delivery integrates two H.264 formats: a 116-second horizontal demo
-and an 89-second vertical reel. Both show the narrative and analysis modules,
+The final delivery integrates two H.264 formats: a 104.2-second horizontal demo
+and an 82.3-second vertical reel. Both show the narrative and analysis modules,
 a real goal sequence with a scoreboard update, two camera views, motion
 prediction, distances in meters, speed in m/s and a heatmap accumulated over
 the complete 12:56 `IMG_9933.MOV` match.
@@ -24,8 +24,14 @@ ball regression remains in the evidence JSON so the presentation does not hide
 the known limitation.
 
 Final local artifacts are under
-`outputs/review/2026-06-19/submission_v1_2_2/`. Small versioned evidence is under
+`outputs/review/2026-06-19/submission_v1_3_0/`. Small versioned evidence is under
 `docs/evidence/`, with verified stills under `docs/assets/`.
+
+The final presentation is assembled with a versioned Remotion timeline rather
+than ad-hoc manual edits. It adds restrained fades, chapter cues, progress,
+Pumas/UNAM identity and format-specific 16:9/9:16 composition while preserving
+the verified source claims. No music or synthetic events are added. Full decode
+passed for all 3,126 demo frames and all 2,470 reel frames.
 
 The goal sequence in `video-427` is machine-verifiable rather than only a
 visual edit. The tracked ball crosses an explicitly calibrated blue-goal line
@@ -46,6 +52,12 @@ field membership observes the physical blue goal in all 300 frames of the
 reviewed clip; the yellow goal remains the higher-confidence SAM 3 result. The
 new tracks contain zero geometry-only goals, one goal per color per frame and
 render no goal trails.
+
+A second audit found that the broad blue HSV contour could select the right
+sideline in 11 frames because it was slightly larger than the real goal. The
+new rank combines 65% field-end support with 35% confidence/area, then applies
+a causal box EMA. False sideline goals fall from 11 to 0; mean center jump falls
+from 93.56 px to 4.01 px and maximum jump from 1166.2 px to 23.7 px.
 
 Robot forecasting now uses metric robot paths instead of reusing only the ball
 trajectory. A least-squares velocity estimate over recent observations creates

@@ -1,0 +1,56 @@
+{
+  "schema": "samba_futbot.submission_videos.v6",
+  "release": "v1.3.0",
+  "competition": "Copa FutBotMX 2026",
+  "challenge": "Reto de Vision por Computadora - Categoria Profesional",
+  "team": "Pumas",
+  "institution": "Universidad Nacional Autonoma de Mexico (UNAM)",
+  "members": [
+    "German Alday Salazar",
+    "Raul Garcia Lemus",
+    "Darien Pina Sanchez"
+  ],
+  "products": [
+    {
+      "kind": "professional_demo",
+      "path": "outputs/review/2026-06-19/submission_v1_3_0/SAMBA_FutBot-demo-professional.mp4",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "frames": 3126,
+      "duration_seconds": 104.2,
+      "bytes": 38350202,
+      "sha256": "b21ca7ab6c929852567a3255869ebff0d5b07a3cf1b13f36787841ae1832c1f0"
+    },
+    {
+      "kind": "professional_reel",
+      "path": "outputs/review/2026-06-19/submission_v1_3_0/SAMBA_FutBot-reel-professional.mp4",
+      "codec": "h264",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "frames": 2470,
+      "duration_seconds": 82.3333333333,
+      "bytes": 50153514,
+      "sha256": "28cefa5a1e6e1820154127e4a0005bd51b15843bc3c7e494d85172ff1c5a22df"
+    }
+  ],
+  "editing": {
+    "engine": "Remotion",
+    "version": "4.0.481",
+    "source_demo": "outputs/review/2026-06-19/submission_v1_3_base/SAMBA_FutBot-demo-final.mp4",
+    "source_reel": "outputs/review/2026-06-19/submission_v1_3_base/SAMBA_FutBot-reel-instagram.mp4",
+    "timeline_source": "video_studio/src/video.tsx",
+    "audio": "none",
+    "music": "none"
+  },
+  "evidence_scope": {
+    "detections": "unchanged claims from the verified analysis pipeline",
+    "blue_goal": "field-end HSV selection plus temporal EMA over observed boxes",
+    "motion_prediction": "metric ball and robot kinematic branches with explicitly heuristic weights",
+    "goal_event": "directed crossing, persistence and calibrated back-wall contact",
+    "heatmap": "full 12:56 source match with 23,274 readable frames",
+    "segmentation_metrics": "COCO mask AP/AR over 128 annotated images"
+  }
+}

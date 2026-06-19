@@ -1,0 +1,50 @@
+{
+  "schema": "samba_futbot.submission_video_qa.v4",
+  "release": "v1.3.0",
+  "validated_at": "2026-06-18",
+  "products": [
+    {
+      "kind": "professional_demo",
+      "file": "SAMBA_FutBot-demo-professional.mp4",
+      "declared_frames": 3126,
+      "decoded_frames": 3126,
+      "duration_seconds": 104.2,
+      "full_decode": "passed",
+      "checked_seconds": [1.5, 5, 11, 13, 30, 52, 60, 68, 78, 90, 102]
+    },
+    {
+      "kind": "professional_reel",
+      "file": "SAMBA_FutBot-reel-professional.mp4",
+      "declared_frames": 2470,
+      "decoded_frames": 2470,
+      "duration_seconds": 82.3333333333,
+      "full_decode": "passed",
+      "checked_seconds": [1.5, 5, 9, 11, 26, 45, 50, 60, 72, 80]
+    }
+  ],
+  "blue_goal_correction": {
+    "reviewed_clip": "IMG_9938_f001799_10s.mp4",
+    "frames": 300,
+    "observed_blue_goal_frames": 300,
+    "old_right_sideline_false_frames": 11,
+    "new_right_sideline_false_frames": 0,
+    "old_mean_box_center_jump_px": 93.56,
+    "new_mean_box_center_jump_px": 4.01,
+    "old_max_box_center_jump_px": 1166.2,
+    "new_max_box_center_jump_px": 23.7,
+    "selection": "65% field-end support plus 35% confidence/area",
+    "stabilization": "causal EMA alpha 0.25 with 240 px outlier gate"
+  },
+  "visual_assertions": {
+    "professional_intro_is_legible": true,
+    "methodology_is_legible_in_both_aspect_ratios": true,
+    "chapter_transitions_do_not_hide_evidence": true,
+    "blue_goal_is_only_on_the_physical_end_line": true,
+    "blue_goal_box_is_temporally_stable": true,
+    "goal_score_changes_after_back_wall_contact": true,
+    "robot_prediction_branches_and_weights_are_visible": true,
+    "full_match_heatmap_is_visible": true,
+    "metrics_and_validation_are_legible": true,
+    "music_is_absent": true
+  }
+}

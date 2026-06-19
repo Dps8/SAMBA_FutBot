@@ -10,9 +10,9 @@ detecciones en metricas, eventos, mapas tacticos y videos demo.
 - **Equipo:** Pumas.
 - **Institución:** Universidad Nacional Autónoma de México (UNAM).
 - **Integrantes:** Germán Alday Salazar, Raúl García Lemus y Darien Piña Sánchez.
-- **Demo final (116 s, 1920x1080, H.264):**
-  [GitHub Release v1.2.2](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.2.2).
-- **Reel listo para Instagram (89 s, 1080x1920, H.264):**
+- **Demo profesional (104.2 s, 1920x1080, H.264):**
+  [GitHub Release v1.3.0](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.3.0).
+- **Reel listo para Instagram (82.3 s, 1080x1920, H.264):**
   se incluye en el mismo release.
 - **Enlace publico de Instagram (provisional):**
   [reel pendiente de publicacion](https://www.instagram.com/reel/PENDIENTE_PUBLICACION/).
@@ -25,6 +25,8 @@ de narrativa y analisis, una secuencia real de gol con cambio de marcador, dos
 vistas de camara, distancias y velocidades metricas, prediccion de movimiento,
 mapa tactico, mapa de calor de un partido completo y validacion cuantitativa del
 fine-tuning.
+
+![Apertura profesional Pumas UNAM](docs/assets/submission-intro.jpg)
 
 ![Enfoques de tiempo, geometria y QA](docs/assets/submission-approach.jpg)
 
@@ -46,10 +48,12 @@ fine-tuning.
 
 ![Metricas del clip validado](docs/assets/submission-metrics.jpg)
 
+![Validacion profesional](docs/assets/submission-professional-validation.jpg)
+
 La evidencia numerica de la corrida completa esta en
 [`full-match-IMG_9933-summary.json`](docs/evidence/full-match-IMG_9933-summary.json),
 acompanada por el reporte exacto del heatmap y las metricas operativas. El
-[`manifiesto v1.2.2`](docs/evidence/submission-video-manifest-v1.2.2.json)
+[`manifiesto v1.3.0`](docs/evidence/submission-video-manifest-v1.3.0.json)
 registra codec, resolucion, duracion, entradas y alcance de cada afirmacion.
 
 La ruta actual no depende solo de un prompt a SAM 3. Para la camara superior se
@@ -88,6 +92,12 @@ resultado conserva `evidence: geometry_only`; no se dibuja ni confirma un gol
 por si solo. Los scores de SAM 3 y de los filtros no son probabilidades
 calibradas y se reportan con su procedencia.
 
+La seleccion cromatica de porterias combina confianza y area con proximidad a
+los extremos del eje largo del campo. En `IMG_9938`, esto elimina once cuadros
+que confundian la franja lateral derecha con la porteria azul. Una EMA causal
+(`alpha=0.25`) estabiliza la caja observada: el salto medio entre centros baja
+de `93.56 px` a `4.01 px` y el maximo de `1166.2 px` a `23.7 px`.
+
 ### Prediccion de pelota y robots
 
 La prediccion opera despues de tracking y homografia. Para cada robot se ajustan
@@ -113,7 +123,7 @@ IDs sobre el mismo robot no se presenten como dos agentes diferentes.
 - Campo oficial usado para homografia: `2.43 m x 1.82 m`.
 - Pelota oficial considerada: pelota naranja tipo golf, `42 mm`; el color se
   maneja como perfil configurable, no como unica fuente de deteccion.
-- Suite local: 297 pruebas y 6 subpruebas aprobadas.
+- Suite local: 299 pruebas y 6 subpruebas aprobadas.
 - Clip superior limpio: maximo dos robots y una pelota por cuadro; 205
   candidatos de pelota revisados, 203 aceptados y dos falsos puntos sobre
   robots eliminados por contexto.
@@ -131,7 +141,7 @@ IDs sobre el mismo robot no se presenten como dos agentes diferentes.
   rastreada, cruce dirigido en el cuadro 356, persistencia temporal y contacto
   con la pared trasera exigido por las reglas; la evidencia registra seis
   cuadros fuera y seis dentro.
-- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_2_2`.
+- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_3_0`.
 - Evidencia pequena y versionable: `docs/evidence` y `docs/assets`.
 
 ## Estructura Del Repositorio
@@ -159,6 +169,10 @@ docs/
 
 scripts/
   build_submission_videos.py          Construye demo horizontal y reel vertical.
+
+video_studio/
+  src/video.tsx                       Timeline profesional Remotion para 16:9 y 9:16.
+  scripts/prepare-media.mjs           Prepara los videos base verificados.
 
 outputs/
   detections/                         Detecciones JSONL.
@@ -269,6 +283,12 @@ Puntos clave:
 - `goal_detection.require_field_overlap`: exige que la porteria aceptada este
   sobre o tocando el campo detectado. Con `max_per_frame_per_class: 1`, el
   pipeline conserva como maximo una porteria azul y una amarilla por frame.
+- `goal_detection.min_boundary_support`: descarta regiones cromaticas alejadas
+  de los extremos del eje largo del campo; evita confundir una banda lateral
+  azul con una porteria.
+- `goal_detection.stabilize_boxes`, `box_ema_alpha` y
+  `max_center_jump_px`: suavizan la caja de porteria entre cuadros y sustituyen
+  saltos temporales incompatibles por la ultima geometria estable.
 - `goal_detection.infer_missing_opposite`: si en un frame hay campo y solo se
   detecta una porteria de color, crea la porteria opuesta por simetria respecto
   al eje central del campo y la marca con `source: goal_geometry`. Esta apagado
@@ -1248,6 +1268,21 @@ El script produce un demo `1920x1080` menor a dos minutos y un reel
 `1080x1920` mayor a 30 segundos. Si encuentra FFmpeg o
 `imageio-ffmpeg`, convierte a H.264, `yuv420p` y activa `faststart`; de otro
 modo conserva una salida MP4V valida.
+
+La edicion profesional reproducible usa Remotion sobre esas dos bases. No
+modifica detecciones, eventos ni metricas:
+
+```powershell
+cd video_studio
+pnpm install
+pnpm media:prepare
+pnpm render:demo
+pnpm render:reel
+```
+
+El timeline agrega apertura Pumas/UNAM, metodologia, transiciones breves,
+capitulos, progreso y cierre institucional. Los videos se mantienen sin musica
+y las probabilidades siguen rotuladas como heuristicas.
 
 ## Entorno Validado
 

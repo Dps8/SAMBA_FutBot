@@ -19,10 +19,10 @@ mantienen en el `README.md` principal para evitar dos manuales divergentes.
 
 ## Evidencia Final
 
-- `submission-video-manifest-v1.2.2.json`: entradas, codec, resolucion,
+- `submission-video-manifest-v1.3.0.json`: entradas, codec, resolucion,
   duracion y alcance de afirmaciones del demo y reel.
-- `submission-video-qa-v1.2.2.json`: hashes, decodificacion completa, porterias
-  observadas y predicciones de robots revisadas.
+- `submission-video-qa-v1.3.0.json`: hashes, decodificacion completa,
+  estabilizacion de porteria azul y composicion Remotion revisadas.
 - `video-427-calibrated-goal-events.json`: disparo y gol confirmado mediante
   pelota rastreada, cruce dirigido, persistencia y contacto con pared trasera.
 - `video-427-calibrated-goal-summary.json`: marcador confirmado y resumen de
