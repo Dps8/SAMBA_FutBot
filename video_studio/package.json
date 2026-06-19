@@ -1,0 +1,23 @@
+{
+  "name": "samba-futbot-video-studio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "media:prepare": "node scripts/prepare-media.mjs",
+    "studio": "remotion studio src/index.tsx",
+    "render:demo": "remotion render src/index.tsx ProfessionalDemo ../outputs/review/2026-06-19/submission_v1_3_0/SAMBA_FutBot-demo-professional.mp4 --codec=h264 --crf=18 --concurrency=4",
+    "render:reel": "remotion render src/index.tsx ProfessionalReel ../outputs/review/2026-06-19/submission_v1_3_0/SAMBA_FutBot-reel-professional.mp4 --codec=h264 --crf=18 --concurrency=4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.481",
+    "@remotion/transitions": "4.0.481",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.481"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "typescript": "5.8.3"
+  }
+}

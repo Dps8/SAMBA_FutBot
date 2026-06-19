@@ -39,3 +39,8 @@ docs/PROFESSIONAL_STRATEGY.md
 # Local review and extracted-reference scratch space
 /artifacts/
 /tmp/
+
+# Local Remotion media/cache
+/video_studio/node_modules/
+/video_studio/public/*.mp4
+/video_studio/.remotion/

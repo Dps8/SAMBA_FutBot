@@ -18,8 +18,12 @@ licenses and copyrights.
 | scikit-learn | Optional clustering and evaluation helpers | BSD-3-Clause. |
 | Matplotlib | Optional tactical plots | PSF-based license. |
 | FFmpeg / libx264 | Optional H.264 packaging for submission videos | Their upstream build and codec licenses apply; no binary is redistributed in this repository. |
+| Remotion | Reproducible professional video timeline and rendering | Remotion License; free-license terms apply to eligible individuals and organizations. |
+| React / React DOM | Component runtime used by the Remotion timeline | MIT. |
+| esbuild | Local bundling for the Remotion project | MIT. |
 
 The official SAM 3 repository is installed separately from its upstream URL;
 weights and access tokens are not committed. Challenge videos are also excluded
 from Git. See `requirements-sam3.txt`, `pyproject.toml` and the upstream
-projects for exact versions and complete license texts.
+projects for exact versions and complete license texts. Remotion and frontend
+tool versions are pinned in `video_studio/package.json` and `pnpm-lock.yaml`.
