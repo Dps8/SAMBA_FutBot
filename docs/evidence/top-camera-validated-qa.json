@@ -1,0 +1,76 @@
+{
+  "status": "good",
+  "quality_score": 100,
+  "summary": {
+    "frames_observed": 300,
+    "detections": 3200,
+    "tracks": 11,
+    "ball_in_play_coverage_ratio": 1.0,
+    "ball_frame_coverage_ratio": 1.0,
+    "field_coverage_ratio": 1.0,
+    "robot_coverage_ratio": 1.0,
+    "ball_track_fragmentation_gaps": 0,
+    "max_ball_speed_px_frame": 6.800735254367722,
+    "max_ball_speed_px_second": 203.94044880797924,
+    "field_path_samples": 0,
+    "field_distance_m": 0.0,
+    "mean_speed_m_s": 0.0,
+    "max_speed_m_s": 0.0,
+    "goal_zone_entries": 0,
+    "ball_out_of_bounds_samples": 0,
+    "ball_out_of_bounds_ratio": 0.0,
+    "robot_penalty_area_samples": 0,
+    "robot_samples_by_team": {},
+    "unknown_team_ratio": 0.0,
+    "team_assignment_samples": 2000,
+    "team_assigned_samples": 2000,
+    "possession_coverage_ratio": 0.0,
+    "possession_frames": 0,
+    "event_counts": {
+      "collision": 18
+    }
+  },
+  "claim_readiness": {
+    "ball_tracking": {
+      "status": "ready",
+      "reason": "ball coverage and jump checks support trajectory claims"
+    },
+    "metric_speed_trajectory": {
+      "status": "review",
+      "reason": "homography/path evidence is too thin for final metric speed claims"
+    },
+    "team_possession": {
+      "status": "review",
+      "reason": "team assignment or possession coverage is not strong enough yet"
+    },
+    "goal_scoring": {
+      "status": "review",
+      "reason": "no goal candidate events were detected in this run"
+    },
+    "shot_pressure": {
+      "status": "review",
+      "reason": "no shot candidate events were detected in this run"
+    }
+  },
+  "issues": [],
+  "thresholds": {
+    "min_ball_coverage": 0.75,
+    "fail_ball_coverage": 0.3,
+    "min_field_coverage": 0.9,
+    "fail_field_coverage": 0.5,
+    "min_robot_coverage": 0.5,
+    "max_ball_jump_px_frame": 45.0,
+    "fail_ball_jump_px_frame": 120.0,
+    "max_out_of_bounds_ratio": 0.05,
+    "fail_out_of_bounds_ratio": 0.2,
+    "max_unknown_team_ratio": 0.35,
+    "fail_unknown_team_ratio": 0.75,
+    "min_possession_coverage": 0.3,
+    "min_field_path_samples": 10
+  },
+  "inputs": {
+    "metrics": "outputs/review/2026-06-16/final_top_camera_robot_recovery_batch_v4/metrics/IMG_9933_f000000_10s-top-final-robot-recovery-v4-metrics.json",
+    "events": "outputs/review/2026-06-16/final_top_camera_robot_recovery_batch_v4/events/IMG_9933_f000000_10s-top-final-robot-recovery-v4-events.json",
+    "field_analysis": null
+  }
+}

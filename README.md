@@ -5,6 +5,28 @@ capitulo Vision por Computadora. El objetivo es segmentar y rastrear campo,
 robots y balon en videos de futbol robotico usando SAM 3, y convertir esas
 detecciones en metricas, eventos, mapas tacticos y videos demo.
 
+## Entrega Profesional 2026
+
+- **Demo final (45 s, 1920x1080, sin audio):**
+  [GitHub Release v1.0.0](https://github.com/Dps8/SAMBA_FutBot/releases/download/v1.0.0/SAMBA_FutBot-demo-final.mp4).
+- **Reel listo para Instagram (45 s, 1080x1920, sin audio):**
+  [descargar desde el release](https://github.com/Dps8/SAMBA_FutBot/releases/download/v1.0.0/SAMBA_FutBot-reel-instagram.mp4).
+- **Enlace publico de Instagram:** pendiente de pegar despues de publicar el
+  reel, antes del cierre del 19 de junio de 2026 a las 23:59.
+- **Matriz de cumplimiento:** [`docs/SUBMISSION_COMPLIANCE.md`](docs/SUBMISSION_COMPLIANCE.md).
+- **Metricas reproducibles:** [`docs/evidence/`](docs/evidence/).
+- **Licencias y atribuciones:** [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+El demo muestra el video original junto al resultado, segmentacion y tracking,
+distancia al balon, eventos, mapa de calor dinamico, metricas cuantitativas y
+el experimento de fine-tuning. La salida H.264 no contiene pista de audio.
+
+![Original y resultado SAMBA FutBot](docs/assets/submission-analysis.jpg)
+
+![Mapa de calor dinamico](docs/assets/submission-heatmap.jpg)
+
+![Metricas del clip validado](docs/assets/submission-metrics.jpg)
+
 La ruta actual no depende solo de un prompt a SAM 3. Para la camara superior se
 usa una estrategia hibrida:
 
@@ -30,7 +52,15 @@ usa una estrategia hibrida:
 - Campo oficial usado para homografia: `2.43 m x 1.82 m`.
 - Pelota oficial considerada: pelota naranja tipo golf, `42 mm`; el color se
   maneja como perfil configurable, no como unica fuente de deteccion.
-- Resultados parciales principales: `outputs/review/2026-05-27/18abril_top_camera`.
+- Suite local: 265 pruebas aprobadas, 1 omitida y 6 subpruebas aprobadas.
+- Clip superior validado: 100% de cobertura de pelota, campo y robots en 300
+  cuadros; 299 muestras de trayectoria y cero huecos de pelota.
+- Fine-tuning validado sobre 128 imagenes: AP global `0.2299 -> 0.3586`
+  (`+56.0%`) y AP de robots `0.4496 -> 0.7068` (`+57.2%`). El AP de pelota
+  pequena retrocedio `20.9%`; se documenta como limitacion, no se oculta.
+- Mapa de calor dinamico validado: 300 cuadros y 2,000 muestras de actividad.
+- Resultados finales locales: `outputs/review/2026-06-18/submission`.
+- Evidencia pequena y versionable: `docs/evidence` y `docs/assets`.
 
 ## Estructura Del Repositorio
 
@@ -47,7 +77,13 @@ data/
 docs/
   RETO.md                             Resumen local del reto.
   RESULTS.md                          Resultados parciales y observaciones.
+  SUBMISSION_COMPLIANCE.md            Evidencia por requisito de entrega.
   TECHNICAL_WALKTHROUGH.md            Explicacion tecnica extendida del repo.
+  assets/                             Capturas finales versionadas.
+  evidence/                           Metricas, QA y comparacion de fine-tuning.
+
+scripts/
+  build_submission_videos.py          Construye demo horizontal y reel vertical.
 
 outputs/
   detections/                         Detecciones JSONL.
@@ -1047,6 +1083,50 @@ La opcion integrada escribe `*-dark-robots.jsonl` junto a las otras detecciones
 y lo incluye antes de tracking/QA. Mantenerla apagada por defecto permite
 comparar baseline SAM3 contra la variante recuperada.
 
+## Reproducir Los Videos De Entrega
+
+El mapa de calor dinamico se genera desde los tracks, sin ejecutar SAM 3 otra
+vez:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m samba_futbot.cli render-heatmap `
+  --video "data\clips\clip-superior.mp4" `
+  --tracks "outputs\tracks\clip-in-play-tracks.jsonl" `
+  --out-video "outputs\submission\robots-heatmap.mp4" `
+  --out-image "outputs\submission\robots-heatmap.png" `
+  --class-name robots `
+  --radius-px 34 `
+  --alpha 0.52
+```
+
+Con un video de analisis, el mapa de calor y los JSON de evidencia se construyen
+las dos salidas finales:
+
+```powershell
+python scripts/build_submission_videos.py `
+  --analysis-video "outputs\videos\clip-analysis-demo.mp4" `
+  --heatmap-video "outputs\submission\robots-heatmap.mp4" `
+  --metrics "outputs\metrics\clip-metrics.json" `
+  --finetune "outputs\finetune\comparison.json" `
+  --out-dir "outputs\submission\final"
+```
+
+El script produce un demo `1920x1080` y un reel `1080x1920`, ambos de 45
+segundos, sin audio. Si encuentra FFmpeg o `imageio-ffmpeg`, convierte a H.264,
+`yuv420p` y activa `faststart`; de otro modo conserva una salida MP4V valida.
+
+## Entorno Validado
+
+- Python 3.12 para inferencia y Python 3.13 para las pruebas locales sin GPU.
+- Linux/Windows; GPU NVIDIA CUDA para SAM 3 y CPU para post-procesamiento.
+- SAM 3 oficial, PyTorch CUDA, OpenCV, NumPy, pandas, Pillow, Supervision y
+  ByteTrack a traves de Supervision.
+- Las corridas largas usan ventanas de 120 cuadros y hasta 16 objetos para
+  mantenerse dentro de 16 GB de VRAM.
+- Las distancias en metros y velocidades metricas solo se publican cuando la
+  homografia supera QA; en caso contrario se reportan pixeles y px/s.
+
 ## Pruebas
 
 En Windows, si `pytest` no esta instalado, se puede usar `unittest`:
@@ -1068,6 +1148,8 @@ pytest
 - `docs/RESULTS.md`: resultados parciales procesados.
 - `docs/SAM3_FINETUNING.md`: contrato de datos, ejecucion y evaluacion para
   adaptar SAM3 con el repositorio oficial.
+- `docs/SUBMISSION_COMPLIANCE.md`: matriz final contra 3.2.2, 3.5, 3.6 y 3.7.
+- `THIRD_PARTY_NOTICES.md`: rol, licencia y terminos de cada dependencia.
 
 ## Licencia
 
@@ -1075,4 +1157,4 @@ Apache-2.0. Ver `LICENSE`.
 
 Este proyecto usa o esta preparado para usar SAM 3 de Meta, Hugging Face,
 OpenCV, NumPy, pandas y Pillow. Hay que respetar las licencias de dependencias,
-checkpoints y datos fuente.
+checkpoints y datos fuente. Ver `THIRD_PARTY_NOTICES.md`.

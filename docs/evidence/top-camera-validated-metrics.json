@@ -1,0 +1,112 @@
+{
+  "frames_observed": 300,
+  "first_frame": 0,
+  "last_frame": 299,
+  "detections": 3200,
+  "tracks": 11,
+  "mean_track_length": 290.90909090909093,
+  "track_fragmentation_gaps": 3,
+  "classes": {
+    "ball": {
+      "detections": 300,
+      "unique_tracks": 1,
+      "mean_score": 0.859806623073605,
+      "frames_with_detection": 300,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0,
+      "in_play_detections": 300,
+      "in_play_frames": 300,
+      "in_play_coverage_ratio": 1.0,
+      "in_play_duration_seconds": 10.004001600640256
+    },
+    "field": {
+      "detections": 300,
+      "unique_tracks": 1,
+      "mean_score": 0.9336099624633789,
+      "frames_with_detection": 300,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0
+    },
+    "goal_blue": {
+      "detections": 300,
+      "unique_tracks": 1,
+      "mean_score": 0.28,
+      "frames_with_detection": 300,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0
+    },
+    "goal_yellow": {
+      "detections": 300,
+      "unique_tracks": 1,
+      "mean_score": 0.8792120321451823,
+      "frames_with_detection": 300,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 0
+    },
+    "robots": {
+      "detections": 2000,
+      "unique_tracks": 7,
+      "mean_score": 0.6999776373727535,
+      "frames_with_detection": 300,
+      "frame_coverage_ratio": 1.0,
+      "track_fragmentation_gaps": 3
+    }
+  },
+  "mask_area_mean": 148369.2117661643,
+  "mask_area_std": 410851.4997098036,
+  "motion": {
+    "ball": {
+      "samples": 299,
+      "mean_speed_px_frame": 1.6080367023527942,
+      "max_speed_px_frame": 6.800735254367722,
+      "trajectory_scope": "in_play",
+      "raw_candidates": {
+        "samples": 299,
+        "mean_speed_px_frame": 1.6080367023527942,
+        "max_speed_px_frame": 6.800735254367722,
+        "mean_speed_px_second": 48.22180463015559,
+        "max_speed_px_second": 203.94044880797924
+      },
+      "mean_speed_px_second": 48.22180463015559,
+      "max_speed_px_second": 203.94044880797924
+    }
+  },
+  "possession": {
+    "frames_with_possession": 0,
+    "frames_without_possession": 300,
+    "coverage_ratio": 0.0,
+    "seconds": 0.0,
+    "by_team": {},
+    "by_track": {},
+    "dominance": {
+      "team": "none",
+      "frames": 0,
+      "margin_frames": 0,
+      "ratio": 0.0,
+      "margin_ratio": 0.0
+    },
+    "longest_streak": null,
+    "streaks": []
+  },
+  "team_assignment": {
+    "robot_samples": 2000,
+    "assigned_samples": 2000,
+    "unknown_samples": 0,
+    "coverage_ratio": 1.0,
+    "unknown_ratio": 0.0,
+    "samples_by_team": {
+      "blue": 2000
+    }
+  },
+  "game_state": {
+    "enabled": true,
+    "frames": 300,
+    "playable_frames": 300,
+    "playable_ratio": 1.0,
+    "states": {
+      "in_play": 300
+    },
+    "segments": 1,
+    "external_events": {}
+  }
+}
