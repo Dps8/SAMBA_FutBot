@@ -21,6 +21,24 @@ from samba_futbot.cli import (
 
 
 class CliHelpersTest(unittest.TestCase):
+    def test_render_heatmap_command_parses(self):
+        args = build_parser().parse_args(
+            [
+                "render-heatmap",
+                "--video",
+                "match.mp4",
+                "--tracks",
+                "tracks.jsonl",
+                "--out-video",
+                "heatmap.mp4",
+                "--out-image",
+                "heatmap.png",
+            ]
+        )
+
+        self.assertEqual(args.class_name, "robots")
+        self.assertAlmostEqual(args.decay, 0.997)
+
     def test_assign_teams_embedding_command_parses(self):
         args = build_parser().parse_args(
             [

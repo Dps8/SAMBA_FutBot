@@ -12,7 +12,7 @@ import numpy as np
 
 from .config import load_config
 from .io_utils import ensure_parent
-from .play_state import BALL_CLASSES, ROBOT_CLASSES, in_play_balls
+from .play_state import ROBOT_CLASSES, in_play_balls
 from .types import Detection, Point
 
 

@@ -54,6 +54,7 @@ from .game_state import (
     playable_frames_from_game_state,
 )
 from .holdout import select_ball_review_set_file, select_human_holdout_file
+from .heatmap import render_activity_heatmap
 from .io_utils import read_detections, read_json, write_detections, write_events, write_json
 from .metrics import summarize_tracks
 from .play_state import ROBOT_CLASSES
@@ -948,6 +949,22 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--visual-hold-frames", type=int, default=12)
     render.add_argument("--show-team-labels", action=argparse.BooleanOptionalAction, default=False)
     render.set_defaults(func=cmd_render_demo)
+
+    heatmap = sub.add_parser(
+        "render-heatmap",
+        help="Renderizar mapa de calor dinamico y acumulado desde tracks.",
+    )
+    heatmap.add_argument("--video", required=True)
+    heatmap.add_argument("--tracks", required=True)
+    heatmap.add_argument("--out-video", required=True)
+    heatmap.add_argument("--out-image", required=True)
+    heatmap.add_argument("--class-name", default="robots")
+    heatmap.add_argument("--team", default=None)
+    heatmap.add_argument("--radius-px", type=int, default=28)
+    heatmap.add_argument("--decay", type=float, default=0.997)
+    heatmap.add_argument("--alpha", type=float, default=0.48)
+    heatmap.add_argument("--max-seconds", type=float, default=None)
+    heatmap.set_defaults(func=cmd_render_heatmap)
 
     info = sub.add_parser("video-info", help="Mostrar metadata de video.")
     info.add_argument("--video", required=True)
@@ -3750,6 +3767,22 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
         show_team_labels=args.show_team_labels,
     )
     print(json.dumps({"video": str(out), "style": args.style}, indent=2))
+
+
+def cmd_render_heatmap(args: argparse.Namespace) -> None:
+    result = render_activity_heatmap(
+        args.video,
+        read_detections(args.tracks),
+        args.out_video,
+        args.out_image,
+        class_name=args.class_name,
+        team=args.team,
+        radius_px=args.radius_px,
+        decay=args.decay,
+        alpha=args.alpha,
+        max_seconds=args.max_seconds,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def cmd_video_info(args: argparse.Namespace) -> None:
