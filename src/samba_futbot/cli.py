@@ -34,7 +34,13 @@ from .drive import (
     load_manifest,
     write_manifest,
 )
-from .events import confirm_goal_candidates, detect_events, summarize_events
+from .events import (
+    confirm_goal_candidates,
+    deduplicate_events,
+    detect_calibrated_goal_crossings,
+    detect_events,
+    summarize_events,
+)
 from .field_analysis import (
     analyze_field_tracks,
     load_field_calibration,
@@ -933,6 +939,37 @@ def build_parser() -> argparse.ArgumentParser:
     events.add_argument("--collision-radius-px", type=float, default=55)
     events.add_argument("--frame-width", type=int, default=None)
     events.add_argument("--in-play-field-margin-px", type=float, default=8.0)
+    events.add_argument(
+        "--goal-line",
+        nargs=4,
+        type=float,
+        metavar=("X1", "Y1", "X2", "Y2"),
+        default=None,
+        help="Linea de meta calibrada en pixeles del video.",
+    )
+    events.add_argument("--goal-line-side", choices=("blue", "yellow"), default=None)
+    events.add_argument(
+        "--goal-back-wall-line",
+        nargs=4,
+        type=float,
+        metavar=("X1", "Y1", "X2", "Y2"),
+        default=None,
+        help="Pared trasera calibrada; obligatoria para confirmar un gol.",
+    )
+    events.add_argument(
+        "--goal-line-entry-sign",
+        choices=("positive", "negative"),
+        default="positive",
+    )
+    events.add_argument("--goal-line-min-inside-frames", type=int, default=3)
+    events.add_argument(
+        "--goal-region",
+        nargs=8,
+        type=float,
+        metavar=("X1", "Y1", "X2", "Y2", "X3", "Y3", "X4", "Y4"),
+        default=None,
+        help="Poligono cuadrilateral de porteria para evidencia y visualizacion.",
+    )
     events.set_defaults(func=cmd_events)
 
     event_summary = sub.add_parser(
@@ -3780,6 +3817,31 @@ def cmd_events(args: argparse.Namespace) -> None:
         frame_width=args.frame_width,
         field_margin_px=args.in_play_field_margin_px,
     )
+    if args.goal_line:
+        if not args.goal_line_side:
+            raise ValueError("--goal-line-side is required with --goal-line")
+        if not args.goal_back_wall_line:
+            raise ValueError("--goal-back-wall-line is required with --goal-line")
+        x1, y1, x2, y2 = args.goal_line
+        wall_x1, wall_y1, wall_x2, wall_y2 = args.goal_back_wall_line
+        region = None
+        if args.goal_region:
+            region = [
+                (args.goal_region[index], args.goal_region[index + 1])
+                for index in range(0, len(args.goal_region), 2)
+            ]
+        events = deduplicate_events(
+            events
+            + detect_calibrated_goal_crossings(
+                detections,
+                goal_line=((x1, y1), (x2, y2)),
+                back_wall_line=((wall_x1, wall_y1), (wall_x2, wall_y2)),
+                goal_side=args.goal_line_side,
+                entry_sign=1 if args.goal_line_entry_sign == "positive" else -1,
+                min_inside_frames=args.goal_line_min_inside_frames,
+                goal_region=region,
+            )
+        )
     write_events(args.out, events)
     summary = summarize_events(events)
     if args.summary_out:

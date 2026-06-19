@@ -1,0 +1,95 @@
+[
+  {
+    "frame_index": 294,
+    "event_type": "shot",
+    "description": "Balon se desplaza rapido hacia porteria right",
+    "confidence": 0.5,
+    "actors": [
+      -1
+    ],
+    "metadata": {
+      "speed_px_frame": 29.025850547399983,
+      "target_side": "right",
+      "shooting_team": "yellow"
+    }
+  },
+  {
+    "frame_index": 365,
+    "event_type": "goal_confirmed",
+    "description": "Gol confirmado por contacto con pared trasera blue",
+    "confidence": 0.92,
+    "actors": [
+      5
+    ],
+    "metadata": {
+      "goal_side": "blue",
+      "scoring_team": "yellow",
+      "goal_line": [
+        [
+          900.0,
+          1320.0
+        ],
+        [
+          1455.0,
+          970.0
+        ]
+      ],
+      "back_wall_line": [
+        [
+          900.0,
+          1450.0
+        ],
+        [
+          1455.0,
+          1030.0
+        ]
+      ],
+      "goal_region": [
+        [
+          850.0,
+          1330.0
+        ],
+        [
+          1455.0,
+          930.0
+        ],
+        [
+          1455.0,
+          1300.0
+        ],
+        [
+          1050.0,
+          1510.0
+        ]
+      ],
+      "entry_sign": 1,
+      "crossing_frame": 356,
+      "back_wall_contact_frame": 365,
+      "back_wall_contact_distance_px": 18.986893,
+      "back_wall_contact_limit_px": 23.375,
+      "back_wall_projection_ratio": 0.704428,
+      "previous_ball_frame": 355,
+      "outside_frames": [
+        350,
+        351,
+        352,
+        353,
+        354,
+        355
+      ],
+      "inside_frames": [
+        356,
+        357,
+        358,
+        359,
+        360,
+        361
+      ],
+      "entry_motion_px": 7.566433,
+      "signed_distance_before_px": -4.385522,
+      "signed_distance_after_px": 2.491831,
+      "validation": "calibrated_goal_line_and_back_wall_contact",
+      "source": "tracked_ball+calibrated_goal_and_back_wall_geometry"
+    }
+  }
+]

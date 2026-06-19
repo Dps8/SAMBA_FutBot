@@ -1,0 +1,35 @@
+schema: samba_futbot.goal_line_calibration.v1
+video: data/raw/Meta_Glasses/17Abril/video-427_singular_display.mov
+frame_size_px: [1455, 1936]
+goal_side: blue
+scoring_team: yellow
+
+# Segmento entre los postes sobre el plano de entrada de la porteria.
+goal_line_px:
+  - [900.0, 1320.0]
+  - [1455.0, 970.0]
+entry_sign: positive
+
+# Franja azul longitudinal que constituye la pared trasera reglamentaria.
+back_wall_line_px:
+  - [900.0, 1450.0]
+  - [1455.0, 1030.0]
+
+# Region usada para visualizacion y revision humana; la confirmacion usa la linea.
+goal_region_px:
+  - [850.0, 1330.0]
+  - [1455.0, 930.0]
+  - [1455.0, 1300.0]
+  - [1050.0, 1510.0]
+
+confirmation:
+  min_inside_frames: 3
+  observed_crossing_frame: 356
+  observed_inside_frames: [356, 357, 358, 359, 360, 361]
+  observed_back_wall_contact_frame: 365
+  validation: calibrated_goal_line_and_back_wall_contact
+
+provenance:
+  method: manual_goal_plane_calibration_on_source_frame
+  ball_source: tracked SAM3/color detection
+  notes: The scoreboard changes only after crossing, persistence and back-wall contact required by rules 4.4.5 and 7.4.4.

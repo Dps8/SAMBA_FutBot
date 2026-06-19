@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--analysis-video", required=True)
     parser.add_argument("--normal-video", required=True)
     parser.add_argument("--goal-video", required=True)
+    parser.add_argument("--goal-tracks", required=True)
+    parser.add_argument("--goal-events", required=True)
     parser.add_argument("--heatmap-video", required=True)
     parser.add_argument("--heatmap-image", required=True)
     parser.add_argument("--field-map", required=True)
@@ -56,6 +58,8 @@ def main() -> None:
         "analysis_video",
         "normal_video",
         "goal_video",
+        "goal_tracks",
+        "goal_events",
         "heatmap_video",
         "heatmap_image",
         "field_map",
@@ -91,7 +95,7 @@ def main() -> None:
         products.append(_video_info(output, codec, kind="reel" if reel else "demo"))
 
     manifest = {
-        "schema": "samba_futbot.submission_videos.v4",
+        "schema": "samba_futbot.submission_videos.v5",
         "competition": "Copa FutBotMX 2026",
         "challenge": "Reto de Visión por Computadora - Categoría Profesional",
         "team": "Pumas",
@@ -104,7 +108,7 @@ def main() -> None:
             "metric_units": "homography-calibrated field: 2.43 x 1.82 m",
             "segmentation_metrics": "COCO mask AP/AR over 128 annotated images",
             "operational_validation": "one ball per frame, field/referee context, robot duplicate suppression",
-            "events": "goal visually validated in video-427 by complete goal-line crossing",
+            "events": "goal automatically confirmed from tracked-ball crossing, persistence and calibrated back-wall contact",
         },
     }
     (out_dir / "submission-video-manifest.json").write_text(
@@ -155,6 +159,8 @@ def _build(
         _goal_scene(
             writer,
             inputs["goal_video"],
+            inputs["goal_tracks"],
+            inputs["goal_events"],
             size,
             fps,
             10 if reel else 12,
@@ -261,14 +267,35 @@ def _build(
 
 
 def _approach_card(writer, size, fps, seconds) -> None:
-    lines = [
-        "SAM 3: máscaras por prompts de texto, puntos, cajas y contexto",
-        "Color adaptable: recuperación HSV como evidencia complementaria",
-        "Pelota: campo/mano + rechazo de robot + trayectoria temporal única",
-        "Robots: IoU + contención + distancia normalizada entre cajas",
-        "ByteTrack/IoU + homografía + eventos + compuertas de QA",
-    ]
-    _animated_card(writer, size, fps, seconds, "ENFOQUE HÍBRIDO", lines, CYAN)
+    perception_seconds = seconds * 0.5
+    _animated_card(
+        writer,
+        size,
+        fps,
+        perception_seconds,
+        "1/2 PERCEPCION HIBRIDA",
+        [
+            "SAM 3: prompts de texto, puntos y cajas producen mascaras semanticas",
+            "Color adaptable: HSV recupera pelota y porterias como pista complementaria",
+            "Contexto: pelota en campo/mano; rechazo dentro de robot; una por cuadro",
+            "Robots: IoU, contencion y distancia entre centros eliminan duplicados",
+        ],
+        CYAN,
+    )
+    _animated_card(
+        writer,
+        size,
+        fps,
+        seconds - perception_seconds,
+        "2/2 TIEMPO, GEOMETRIA Y QA",
+        [
+            "Tracking: IDs enlazan mascaras y forman trayectorias continuas",
+            "Homografia: pixeles se proyectan a metros, m/s y mapa tactico",
+            "Eventos: posesion, pase, disparo y cruce temporal de linea de gol",
+            "QA: cobertura, saltos, ambiguedad y evidencia deciden cada afirmacion",
+        ],
+        GREEN,
+    )
 
 
 def _clip(
@@ -359,49 +386,316 @@ def _pause_explainer(writer, path, size, fps, seconds, *, reel: bool) -> None:
         writer.write(canvas)
 
 
-def _goal_scene(writer, path, size, fps, seconds, *, reel: bool) -> None:
+def _goal_scene(
+    writer,
+    path,
+    tracks_path,
+    events_path,
+    size,
+    fps,
+    seconds,
+    *,
+    reel: bool,
+) -> None:
     total = int(round(seconds * fps))
     moving = max(1, total - int(round(2.5 * fps)))
-    start, event_time, end = 9.5, 11.75, 13.0
+    start, end = 9.5, 12.5
+    ball_tracks = _read_goal_ball_tracks(tracks_path)
+    event_records = _read_json(events_path)
+    goal_event = next(
+        record for record in event_records if record.get("event_type") == "goal_confirmed"
+    )
+    shot_event = next(
+        (record for record in event_records if record.get("event_type") == "shot"),
+        {"frame_index": int(round(start * FPS))},
+    )
+    metadata = goal_event.get("metadata", {})
+    inside_frames = [int(value) for value in metadata.get("inside_frames", [])]
+    required_inside = min(3, len(inside_frames))
+    confirmed_frame = int(
+        metadata.get("back_wall_contact_frame", goal_event["frame_index"])
+    )
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {path}")
     source_fps = float(cap.get(cv2.CAP_PROP_FPS) or FPS)
     last = None
+    last_source_frame = int(round(start * source_fps))
     for index in range(total):
         if index < moving:
             source_time = start + (end - start) * index / max(1, moving - 1)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(source_time * source_fps)))
+            last_source_frame = int(round(source_time * source_fps))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, last_source_frame)
             ok, frame = cap.read()
             if ok:
                 last = frame
         if last is None:
             continue
-        display = _center_vertical_crop(last) if reel else last
+        annotated = _annotate_goal_evidence(
+            last,
+            last_source_frame,
+            ball_tracks,
+            goal_event,
+            int(shot_event["frame_index"]),
+            required_inside,
+        )
+        display = _center_vertical_crop(annotated) if reel else annotated
         canvas = _fit_with_bands(display, size)
-        after_goal = index >= int((event_time - start) / (end - start) * moving)
+        after_goal = last_source_frame >= confirmed_frame
+        inside_count = sum(frame <= last_source_frame for frame in inside_frames)
+        inside_count = min(required_inside, inside_count)
         badge = (
-            "MARCADOR | AMARILLO 1 - 0 AZUL"
+            f"MARCADOR 1-0 | CRUCE {inside_count}/{required_inside} | PARED TRASERA OK"
             if after_goal
-            else "MARCADOR | AMARILLO 0 - 0 AZUL"
+            else f"MARCADOR 0-0 | CRUCE {inside_count}/{required_inside} | PARED PENDIENTE"
         )
-        caption = (
-            "Gol validado en video: cruce completo de la linea de meta"
-            if after_goal
-            else "Disparo detectado por el pipeline hacia la porteria azul"
+        if after_goal:
+            caption = "Gol valido: contacto con pared trasera | Reglas 4.4.5 y 7.4.4"
+        elif inside_count >= required_inside:
+            caption = "Cruce completo; falta contacto con pared trasera para validar el gol"
+        elif last_source_frame >= int(metadata.get("crossing_frame", goal_event["frame_index"])):
+            caption = "Cruce detectado: esperando persistencia temporal antes de marcar"
+        elif last_source_frame >= int(shot_event["frame_index"]):
+            caption = "Disparo detectado por velocidad y direccion hacia la porteria"
+        else:
+            caption = "SAM 3/color localiza la pelota; tracking conserva su identidad"
+        _chrome(
+            canvas,
+            "COMO SE DETECTA EL GOL",
+            caption,
+            index / max(1, total - 1),
+            badge=badge,
         )
-        _chrome(canvas, "SECUENCIA DE GOL", caption, index / max(1, total - 1), badge=badge)
-        if after_goal and index >= moving:
-            target = (int(size[0] * (0.61 if not reel else 0.84)), int(size[1] * 0.64))
-            _draw_callout(
+        if not reel:
+            _draw_goal_canvas_steps(
                 canvas,
-                "Balon tras el plano de gol",
-                target,
-                (32, TOP_BAND + 42),
-                YELLOW,
+                ball_visible=any(
+                    int(record["frame_index"]) == last_source_frame
+                    for record in ball_tracks
+                ),
+                shot_detected=last_source_frame >= int(shot_event["frame_index"]),
+                inside_count=inside_count,
+                required_inside=required_inside,
+                back_wall_contact=after_goal,
+                confirmed=after_goal,
             )
         writer.write(canvas)
     cap.release()
+
+
+def _annotate_goal_evidence(
+    frame: np.ndarray,
+    frame_index: int,
+    ball_tracks: list[dict],
+    goal_event: dict,
+    shot_frame: int,
+    required_inside: int,
+) -> np.ndarray:
+    annotated = frame.copy()
+    metadata = goal_event.get("metadata", {})
+    goal_line = [tuple(int(round(value)) for value in point) for point in metadata["goal_line"]]
+    back_wall_line = [
+        tuple(int(round(value)) for value in point)
+        for point in metadata["back_wall_line"]
+    ]
+    goal_region = [
+        tuple(int(round(value)) for value in point)
+        for point in metadata.get("goal_region", [])
+    ]
+    inside_frames = [int(value) for value in metadata.get("inside_frames", [])]
+    inside_count = min(required_inside, sum(value <= frame_index for value in inside_frames))
+    contact_frame = int(metadata.get("back_wall_contact_frame", goal_event["frame_index"]))
+    back_wall_contact = frame_index >= contact_frame
+    confirmed = required_inside > 0 and inside_count >= required_inside and back_wall_contact
+
+    if goal_region:
+        overlay = annotated.copy()
+        polygon = np.asarray(goal_region, dtype=np.int32)
+        cv2.fillPoly(overlay, [polygon], (210, 125, 25))
+        annotated = cv2.addWeighted(overlay, 0.22, annotated, 0.78, 0)
+        cv2.polylines(annotated, [polygon], True, (255, 210, 70), 6, cv2.LINE_AA)
+    cv2.line(annotated, goal_line[0], goal_line[1], (255, 255, 70), 8, cv2.LINE_AA)
+    cv2.line(
+        annotated,
+        back_wall_line[0],
+        back_wall_line[1],
+        (210, 90, 255),
+        8,
+        cv2.LINE_AA,
+    )
+    midpoint = (
+        (goal_line[0][0] + goal_line[1][0]) // 2,
+        (goal_line[0][1] + goal_line[1][1]) // 2,
+    )
+    cv2.putText(
+        annotated,
+        "LINEA DE GOL",
+        (max(20, midpoint[0] - 280), max(45, midpoint[1] - 28)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.78,
+        (255, 255, 70),
+        3,
+        cv2.LINE_AA,
+    )
+    wall_midpoint = (
+        (back_wall_line[0][0] + back_wall_line[1][0]) // 2,
+        (back_wall_line[0][1] + back_wall_line[1][1]) // 2,
+    )
+    cv2.putText(
+        annotated,
+        "PARED TRASERA | REGLA 4.4.5",
+        (max(20, wall_midpoint[0] - 330), min(frame.shape[0] - 24, wall_midpoint[1] + 54)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.72,
+        (210, 90, 255),
+        3,
+        cv2.LINE_AA,
+    )
+
+    history = [
+        record
+        for record in ball_tracks
+        if frame_index - 48 <= int(record["frame_index"]) <= frame_index
+    ]
+    if len(history) >= 2:
+        points = np.asarray(
+            [
+                [int(round(record["centroid_x"])), int(round(record["centroid_y"]))]
+                for record in history
+            ],
+            dtype=np.int32,
+        )
+        cv2.polylines(annotated, [points], False, (20, 165, 255), 7, cv2.LINE_AA)
+    current = next(
+        (record for record in ball_tracks if int(record["frame_index"]) == frame_index),
+        None,
+    )
+    track_id = 5
+    ball_score = 0.0
+    if current:
+        x1, y1, x2, y2 = [int(round(value)) for value in current["box"]]
+        track_id = int(current.get("track_id") or track_id)
+        ball_score = float(current.get("score", 0.0))
+        ball_overlay = annotated.copy()
+        cv2.rectangle(ball_overlay, (x1, y1), (x2, y2), (20, 140, 255), -1)
+        annotated = cv2.addWeighted(ball_overlay, 0.30, annotated, 0.70, 0)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), (20, 140, 255), 7)
+        _goal_label(
+            annotated,
+            f"PELOTA #{track_id} | conf {ball_score:.2f}",
+            (max(8, x1 - 120), max(42, y1 - 18)),
+            (20, 140, 255),
+        )
+
+    panel_x, panel_y = 92, 42
+    panel_w, panel_h = 690, 236
+    cv2.rectangle(
+        annotated,
+        (panel_x, panel_y),
+        (panel_x + panel_w, panel_y + panel_h),
+        (8, 13, 17),
+        -1,
+    )
+    cv2.rectangle(
+        annotated,
+        (panel_x, panel_y),
+        (panel_x + panel_w, panel_y + panel_h),
+        (54, 202, 226),
+        4,
+    )
+    shot_detected = frame_index >= shot_frame
+    status_lines = [
+        f"1  PELOTA + TRACK #{track_id}: {'OK' if current else 'BUSCANDO'}",
+        f"2  DISPARO (velocidad + direccion): {'OK' if shot_detected else 'ESPERA'}",
+        f"3  CRUCE + PERSISTENCIA: {inside_count}/{required_inside}",
+        f"4  PARED TRASERA: {'CONTACTO' if back_wall_contact else 'PENDIENTE'}",
+        f"RESULTADO: {'GOL CONFIRMADO' if confirmed else 'SIN CAMBIO DE MARCADOR'}",
+    ]
+    for line_index, text in enumerate(status_lines):
+        color = (80, 225, 145) if confirmed and line_index == 3 else (245, 245, 245)
+        cv2.putText(
+            annotated,
+            text,
+            (panel_x + 20, panel_y + 40 + line_index * 42),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.72,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+    return annotated
+
+
+def _goal_label(frame: np.ndarray, text: str, origin: tuple[int, int], color) -> None:
+    (width, height), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.72, 2)
+    x, y = origin
+    x = max(8, min(x, frame.shape[1] - width - 12))
+    y = max(height + 10, min(y, frame.shape[0] - baseline - 10))
+    cv2.rectangle(frame, (x - 8, y - height - 8), (x + width + 8, y + baseline + 7), (8, 13, 17), -1)
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.72,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_goal_canvas_steps(
+    frame: np.ndarray,
+    *,
+    ball_visible: bool,
+    shot_detected: bool,
+    inside_count: int,
+    required_inside: int,
+    back_wall_contact: bool,
+    confirmed: bool,
+) -> None:
+    x, y, width, height = 28, TOP_BAND + 54, 548, 448
+    cv2.rectangle(frame, (x, y), (x + width, y + height), (8, 13, 17), -1)
+    cv2.rectangle(frame, (x, y), (x + width, y + height), (54, 202, 226), 3)
+    lines = [
+        ("EVIDENCIA AUTOMATICA", (255, 255, 255), 0.80),
+        (f"1  Pelota #5 + bounding box: {'OK' if ball_visible else 'buscando'}", (20, 165, 255), 0.67),
+        ("    confianza + trayectoria temporal", (205, 215, 220), 0.59),
+        (f"2  Disparo: {'OK' if shot_detected else 'espera'}", (255, 255, 255), 0.67),
+        ("    velocidad + direccion a porteria", (205, 215, 220), 0.59),
+        (f"3  Cruce del plano: {inside_count}/{required_inside}", (255, 255, 70), 0.67),
+        ("    exterior -> interior + persistencia", (205, 215, 220), 0.59),
+        (
+            f"4  Pared trasera: {'CONTACTO' if back_wall_contact else 'pendiente'}",
+            (210, 90, 255),
+            0.67,
+        ),
+        ("GOL CONFIRMADO" if confirmed else "MARCADOR SIN CAMBIO", (80, 225, 145), 0.76),
+    ]
+    cursor_y = y + 44
+    for text, color, scale in lines:
+        cv2.putText(
+            frame,
+            text,
+            (x + 18, cursor_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            scale,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+        cursor_y += 45
+
+
+def _read_goal_ball_tracks(path: Path) -> list[dict]:
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("class_name") == "ball":
+            records.append(record)
+    return sorted(records, key=lambda record: int(record["frame_index"]))
 
 
 def _prediction_scene(writer, size, fps, seconds, analysis: dict) -> None:

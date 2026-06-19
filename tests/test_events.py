@@ -3,6 +3,7 @@ import unittest
 from samba_futbot.events import (
     confirm_goal_candidates,
     deduplicate_events,
+    detect_calibrated_goal_crossings,
     detect_events,
     estimate_possession,
     summarize_events,
@@ -11,6 +12,90 @@ from samba_futbot.types import Detection, Event
 
 
 class EventsTest(unittest.TestCase):
+    def test_calibrated_goal_line_requires_crossing_and_temporal_persistence(self):
+        detections = [
+            Detection(
+                frame,
+                "ball",
+                0.9,
+                (center_x - 1, 49, center_x + 1, 51),
+                track_id=10,
+            )
+            for frame, center_x in enumerate((20, 15, 11, 9, 7, 5))
+        ]
+
+        events = detect_calibrated_goal_crossings(
+            detections,
+            goal_line=((10, 0), (10, 100)),
+            back_wall_line=((4, 0), (4, 100)),
+            goal_side="blue",
+            entry_sign=1,
+            min_inside_frames=3,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].frame_index, 5)
+        self.assertEqual(events[0].event_type, "goal_confirmed")
+        self.assertEqual(events[0].metadata["scoring_team"], "yellow")
+        self.assertEqual(events[0].metadata["inside_frames"], [3, 4, 5])
+        self.assertEqual(
+            events[0].metadata["validation"],
+            "calibrated_goal_line_and_back_wall_contact",
+        )
+        self.assertEqual(events[0].metadata["crossing_frame"], 3)
+        self.assertEqual(events[0].metadata["back_wall_contact_frame"], 5)
+
+    def test_calibrated_goal_line_rejects_single_inside_frame(self):
+        detections = [
+            Detection(frame, "ball", 0.9, box, track_id=10)
+            for frame, box in enumerate(
+                (
+                    (19, 49, 21, 51),
+                    (14, 49, 16, 51),
+                    (8, 49, 10, 51),
+                    (12, 49, 14, 51),
+                )
+            )
+        ]
+
+        events = detect_calibrated_goal_crossings(
+            detections,
+            goal_line=((10, 0), (10, 100)),
+            back_wall_line=((4, 0), (4, 100)),
+            goal_side="blue",
+            entry_sign=1,
+            min_inside_frames=2,
+        )
+
+        self.assertEqual(events, [])
+
+    def test_calibrated_goal_line_rejects_without_back_wall_contact(self):
+        detections = [
+            Detection(
+                frame,
+                "ball",
+                0.9,
+                (center_x - 1, 49, center_x + 1, 51),
+                track_id=10,
+            )
+            for frame, center_x in enumerate((20, 15, 11, 9, 8, 7, 6))
+        ]
+
+        events = detect_calibrated_goal_crossings(
+            detections,
+            goal_line=((10, 0), (10, 100)),
+            back_wall_line=((-10, 0), (-10, 100)),
+            goal_side="blue",
+            entry_sign=1,
+            min_inside_frames=3,
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_type, "goal_rejected")
+        self.assertEqual(
+            events[0].metadata["rejection_reason"], "missing_back_wall_contact"
+        )
+
     def test_possession_and_pass(self):
         detections = [
             Detection(0, "ball", 1.0, (10, 10, 14, 14), track_id=10),

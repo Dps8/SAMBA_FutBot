@@ -262,6 +262,198 @@ def confirm_goal_candidates(
     )
 
 
+def detect_calibrated_goal_crossings(
+    detections: Iterable[Detection],
+    *,
+    goal_line: tuple[tuple[float, float], tuple[float, float]],
+    back_wall_line: tuple[tuple[float, float], tuple[float, float]],
+    goal_side: str,
+    entry_sign: int = 1,
+    lookback_frames: int = 6,
+    confirmation_frames: int = 6,
+    min_inside_frames: int = 3,
+    min_entry_motion_px: float = 2.0,
+    segment_margin_ratio: float = 0.08,
+    back_wall_confirmation_frames: int = 24,
+    back_wall_contact_radius_ratio: float = 0.75,
+    back_wall_contact_tolerance_px: float = 2.0,
+    goal_region: list[tuple[float, float]] | None = None,
+) -> list[Event]:
+    """Confirm goals from goal-line crossing plus contact with the calibrated back wall."""
+    if entry_sign not in {-1, 1}:
+        raise ValueError("entry_sign must be -1 or 1")
+    if min_inside_frames < 1:
+        raise ValueError("min_inside_frames must be positive")
+    (x1, y1), (x2, y2) = goal_line
+    dx, dy = x2 - x1, y2 - y1
+    length_sq = dx * dx + dy * dy
+    if length_sq <= 0:
+        raise ValueError("goal_line endpoints must be different")
+    line_length = length_sq**0.5
+    (wall_x1, wall_y1), (wall_x2, wall_y2) = back_wall_line
+    wall_dx, wall_dy = wall_x2 - wall_x1, wall_y2 - wall_y1
+    wall_length_sq = wall_dx * wall_dx + wall_dy * wall_dy
+    if wall_length_sq <= 0:
+        raise ValueError("back_wall_line endpoints must be different")
+    wall_length = wall_length_sq**0.5
+
+    paths: dict[int, list[Detection]] = {}
+    for detection in detections:
+        if detection.class_name not in BALL_CLASSES:
+            continue
+        key = detection.track_id if detection.track_id is not None else -1
+        paths.setdefault(key, []).append(detection)
+
+    confirmed: list[Event] = []
+    for track_id, path in paths.items():
+        path.sort(key=lambda item: item.frame_index)
+        for index in range(1, len(path)):
+            previous = path[index - 1]
+            current = path[index]
+            if current.frame_index - previous.frame_index > 2:
+                continue
+            previous_distance = _goal_line_signed_distance(
+                previous.centroid, goal_line, line_length
+            )
+            current_distance = _goal_line_signed_distance(
+                current.centroid, goal_line, line_length
+            )
+            if entry_sign * previous_distance > 0 or entry_sign * current_distance <= 0:
+                continue
+            projection = (
+                (current.centroid[0] - x1) * dx + (current.centroid[1] - y1) * dy
+            ) / length_sq
+            if not -segment_margin_ratio <= projection <= 1.0 + segment_margin_ratio:
+                continue
+            if distance(previous.centroid, current.centroid) < min_entry_motion_px:
+                continue
+
+            history_start = max(0, index - max(1, lookback_frames))
+            outside_frames = [
+                item.frame_index
+                for item in path[history_start:index]
+                if entry_sign
+                * _goal_line_signed_distance(item.centroid, goal_line, line_length)
+                <= 0
+            ]
+            if not outside_frames:
+                continue
+
+            future = path[index : index + max(1, confirmation_frames)]
+            inside_frames: list[int] = []
+            last_frame = current.frame_index - 1
+            for item in future:
+                if item.frame_index - last_frame > 2:
+                    break
+                signed_distance = _goal_line_signed_distance(
+                    item.centroid, goal_line, line_length
+                )
+                if entry_sign * signed_distance <= 0:
+                    break
+                inside_frames.append(item.frame_index)
+                last_frame = item.frame_index
+            if len(inside_frames) < min_inside_frames:
+                continue
+
+            contact = None
+            contact_distance = None
+            contact_limit = None
+            wall_projection = None
+            for item in path[index : index + max(1, back_wall_confirmation_frames)]:
+                projection = (
+                    (item.centroid[0] - wall_x1) * wall_dx
+                    + (item.centroid[1] - wall_y1) * wall_dy
+                ) / wall_length_sq
+                if not -segment_margin_ratio <= projection <= 1.0 + segment_margin_ratio:
+                    continue
+                signed_wall_distance = _goal_line_signed_distance(
+                    item.centroid, back_wall_line, wall_length
+                )
+                item_x1, item_y1, item_x2, item_y2 = item.box
+                ball_radius = max(item_x2 - item_x1, item_y2 - item_y1) * 0.5
+                limit = (
+                    back_wall_contact_radius_ratio * ball_radius
+                    + back_wall_contact_tolerance_px
+                )
+                if abs(signed_wall_distance) <= limit:
+                    contact = item
+                    contact_distance = abs(signed_wall_distance)
+                    contact_limit = limit
+                    wall_projection = projection
+                    break
+            if contact is None:
+                confirmed.append(
+                    Event(
+                        frame_index=current.frame_index,
+                        event_type="goal_rejected",
+                        description="Cruce sin contacto verificable con pared trasera",
+                        confidence=0.7,
+                        actors=[track_id],
+                        metadata={
+                            "goal_side": goal_side.lower(),
+                            "rejection_reason": "missing_back_wall_contact",
+                            "goal_line": [[x1, y1], [x2, y2]],
+                            "back_wall_line": [
+                                [wall_x1, wall_y1],
+                                [wall_x2, wall_y2],
+                            ],
+                            "crossing_frame": current.frame_index,
+                            "inside_frames": inside_frames,
+                            "validation": "calibrated_goal_line_crossing",
+                        },
+                    )
+                )
+                break
+
+            side = goal_side.lower()
+            confirmed.append(
+                Event(
+                    frame_index=contact.frame_index,
+                    event_type="goal_confirmed",
+                    description=f"Gol confirmado por contacto con pared trasera {side}",
+                    confidence=min(0.95, 0.68 + 0.04 * len(inside_frames)),
+                    actors=[track_id],
+                    metadata={
+                        "goal_side": side,
+                        "scoring_team": _scoring_team_for_goal(side),
+                        "goal_line": [[x1, y1], [x2, y2]],
+                        "back_wall_line": [
+                            [wall_x1, wall_y1],
+                            [wall_x2, wall_y2],
+                        ],
+                        "goal_region": goal_region or [],
+                        "entry_sign": entry_sign,
+                        "crossing_frame": current.frame_index,
+                        "back_wall_contact_frame": contact.frame_index,
+                        "back_wall_contact_distance_px": round(contact_distance, 6),
+                        "back_wall_contact_limit_px": round(contact_limit, 6),
+                        "back_wall_projection_ratio": round(wall_projection, 6),
+                        "previous_ball_frame": previous.frame_index,
+                        "outside_frames": outside_frames,
+                        "inside_frames": inside_frames,
+                        "entry_motion_px": round(
+                            distance(previous.centroid, current.centroid), 6
+                        ),
+                        "signed_distance_before_px": round(previous_distance, 6),
+                        "signed_distance_after_px": round(current_distance, 6),
+                        "validation": "calibrated_goal_line_and_back_wall_contact",
+                        "source": "tracked_ball+calibrated_goal_and_back_wall_geometry",
+                    },
+                )
+            )
+            break
+    return deduplicate_events(confirmed)
+
+
+def _goal_line_signed_distance(
+    point: tuple[float, float],
+    goal_line: tuple[tuple[float, float], tuple[float, float]],
+    line_length: float,
+) -> float:
+    (x1, y1), (x2, y2) = goal_line
+    return ((x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)) / line_length
+
+
 def deduplicate_events(
     events: Iterable[Event],
     *,
