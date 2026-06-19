@@ -222,6 +222,70 @@ class ColorGoalsTest(unittest.TestCase):
         self.assertEqual(goals["goal_blue"].box, (130, 20, 150, 60))
         self.assertEqual(goals["goal_blue"].score, 0.25)
         self.assertEqual(goals["goal_blue"].extra["source"], "goal_geometry")
+        self.assertEqual(goals["goal_blue"].extra["inference_axis"], "horizontal")
+
+    def test_goal_constraints_infer_vertical_opposite_goal_for_portrait_field(self):
+        detections = [
+            Detection(0, "field", 0.9, (0, 0, 80, 160)),
+            Detection(0, "goal_yellow", 0.8, (20, 10, 60, 30), area=800),
+        ]
+
+        constrained = enforce_goal_frame_constraints(
+            detections,
+            field_detections=detections,
+            infer_missing_opposite=True,
+        )
+
+        goals = {det.class_name: det for det in constrained if det.class_name.startswith("goal_")}
+        self.assertEqual(goals["goal_blue"].box, (20, 130, 60, 150))
+        self.assertEqual(goals["goal_blue"].extra["inference_axis"], "vertical")
+        self.assertEqual(goals["goal_blue"].extra["evidence"], "geometry_only")
+
+    def test_geometry_only_seed_does_not_block_observed_blue_goal(self):
+        cv2 = require_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            video = tmp_path / "portrait_goals.mp4"
+            out = tmp_path / "portrait_goals.jsonl"
+            writer = cv2.VideoWriter(
+                str(video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                5,
+                (160, 160),
+            )
+            frame = np.zeros((160, 160, 3), dtype=np.uint8)
+            frame[130:152, 48:112] = (255, 0, 0)
+            writer.write(frame)
+            writer.release()
+            seeds = [
+                Detection(0, "field", 0.9, (0, 0, 160, 160)),
+                Detection(
+                    0,
+                    "goal_blue",
+                    0.2,
+                    (110, 8, 150, 28),
+                    prompt="geometry_inferred_opposite_goal",
+                    extra={"source": "goal_geometry", "evidence": "geometry_only"},
+                ),
+            ]
+
+            detections = detect_colored_goals(
+                video,
+                out,
+                seed_detections=seeds,
+                adaptive_color=True,
+                spatial_gate_from_seeds=True,
+                seed_spatial_margin_px=5,
+                require_field_overlap=True,
+                min_area=100,
+                max_area=10_000,
+                min_extent=0.2,
+            )
+
+        blue = [det for det in detections if det.class_name == "goal_blue"]
+        self.assertEqual(len(blue), 1)
+        self.assertGreater(blue[0].box[1], 120)
+        self.assertEqual(blue[0].extra["source"], "color_goals")
 
     def test_goal_constraints_do_not_infer_opposite_goal_without_field(self):
         detections = [Detection(0, "goal_yellow", 0.8, (10, 20, 30, 60), area=800)]

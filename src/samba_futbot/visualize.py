@@ -296,10 +296,13 @@ def _draw_detection(
     cv2.rectangle(frame, (x1, y1), (x2, y2), color_bgr, thickness)
 
     cx, cy = [int(round(v)) for v in det.centroid]
-    if det.track_id is not None:
-        trails[det.track_id].append((cx, cy))
-        pts = list(trails[det.track_id])
-        if det.class_name in BALL_CLASSES or style == "analysis":
+    if _supports_motion_trail(det):
+        trail_key = (det.class_name, det.track_id)
+        trails[trail_key].append((cx, cy))
+        pts = list(trails[trail_key])
+        if det.class_name in BALL_CLASSES or (
+            style == "analysis" and det.class_name in ROBOT_CLASSES
+        ):
             for a, b in zip(pts, pts[1:]):
                 cv2.line(frame, a, b, color_bgr, 2)
 
@@ -315,6 +318,10 @@ def _draw_detection(
             anchor_box=(x1, y1, x2, y2),
             occupied_boxes=label_boxes,
         )
+
+
+def _supports_motion_trail(detection: Detection) -> bool:
+    return detection.track_id is not None and detection.class_name in BALL_CLASSES | ROBOT_CLASSES
 
 
 def _visual_track_key(det: Detection) -> tuple[str, int] | None:

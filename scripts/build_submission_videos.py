@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from samba_futbot.motion_prediction import select_robot_prediction_snapshot
+
 
 DEMO_SIZE = (1920, 1080)
 REEL_SIZE = (1080, 1920)
@@ -109,6 +111,7 @@ def main() -> None:
             "segmentation_metrics": "COCO mask AP/AR over 128 annotated images",
             "operational_validation": "one ball per frame, field/referee context, robot duplicate suppression",
             "events": "goal automatically confirmed from tracked-ball crossing, persistence and calibrated back-wall contact",
+            "motion_prediction": "ball and robot kinematic branches in metric field coordinates; robot branch probabilities are explicitly heuristic",
         },
     }
     (out_dir / "submission-video-manifest.json").write_text(
@@ -273,12 +276,12 @@ def _approach_card(writer, size, fps, seconds) -> None:
         size,
         fps,
         perception_seconds,
-        "1/2 PERCEPCION HIBRIDA",
+        "1/2 PERCEPCION Y FUSION DE EVIDENCIA",
         [
-            "SAM 3: prompts de texto, puntos y cajas producen mascaras semanticas",
-            "Color adaptable: HSV recupera pelota y porterias como pista complementaria",
-            "Contexto: pelota en campo/mano; rechazo dentro de robot; una por cuadro",
-            "Robots: IoU, contencion y distancia entre centros eliminan duplicados",
+            "Hipotesis semantica: SAM 3 segmenta texto, puntos y cajas; se conservan mascara, score y procedencia",
+            "Evidencia cromatica: HSV adaptable recupera pelota y porterias, pero no decide una clase por si solo",
+            "Fusion: IoU, contencion, area y posicion en campo resuelven duplicados y candidatos incompatibles",
+            "Restricciones: una pelota y una porteria por color; pelota solo en campo o mano; robots separados espacialmente",
         ],
         CYAN,
     )
@@ -287,12 +290,12 @@ def _approach_card(writer, size, fps, seconds) -> None:
         size,
         fps,
         seconds - perception_seconds,
-        "2/2 TIEMPO, GEOMETRIA Y QA",
+        "2/2 TIEMPO, GEOMETRIA E INCERTIDUMBRE",
         [
-            "Tracking: IDs enlazan mascaras y forman trayectorias continuas",
-            "Homografia: pixeles se proyectan a metros, m/s y mapa tactico",
-            "Eventos: posesion, pase, disparo y cruce temporal de linea de gol",
-            "QA: cobertura, saltos, ambiguedad y evidencia deciden cada afirmacion",
+            "Asociacion temporal: ByteTrack/IoU enlaza observaciones; los huecos cortos se conservan con edad limitada",
+            "Homografia H: centroides de imagen se proyectan a cancha 2.43 x 1.82 m; diferencias temporales dan m/s",
+            "Prediccion: velocidad reciente y giros +/-38 grados/s generan ramas; el campo penaliza hipotesis inviables",
+            "Eventos: maquinas de estado exigen persistencia; un gol requiere cruce dirigido y contacto con pared trasera",
         ],
         GREEN,
     )
@@ -706,6 +709,17 @@ def _prediction_scene(writer, size, fps, seconds, analysis: dict) -> None:
     field = analysis.get("calibration", {}).get("field", {})
     field_length = float(field.get("length_m", 2.43))
     field_width = float(field.get("width_m", 1.82))
+    snapshot = analysis.get("robot_prediction_showcase") or {}
+    robot_forecasts = snapshot.get("forecasts") or []
+    if not robot_forecasts and analysis.get("robot_path"):
+        snapshot = select_robot_prediction_snapshot(
+            analysis["robot_path"],
+            fps=30.0,
+            field_length_m=field_length,
+            field_width_m=field_width,
+        )
+        robot_forecasts = snapshot.get("forecasts") or []
+    ball_total = total // 2 if robot_forecasts else total
     speed_candidates = []
     for index in range(5, len(path)):
         dx = float(path[index]["field_x_m"]) - float(path[index - 5]["field_x_m"])
@@ -714,9 +728,9 @@ def _prediction_scene(writer, size, fps, seconds, analysis: dict) -> None:
     peak_index = max(speed_candidates, default=(0.0, len(path) // 2))[1]
     start_index = max(5, peak_index - 30)
     end_index = min(len(path) - 1, max(start_index + 1, peak_index + 30))
-    for output_index in range(total):
+    for output_index in range(ball_total):
         current_index = start_index + int(
-            (end_index - start_index) * output_index / max(1, total - 1)
+            (end_index - start_index) * output_index / max(1, ball_total - 1)
         )
         current = path[current_index]
         previous = path[max(0, current_index - 5)]
@@ -728,7 +742,7 @@ def _prediction_scene(writer, size, fps, seconds, analysis: dict) -> None:
             canvas,
             "PREDICCION DE MOVIMIENTO",
             "Modelo cinematico: p(t+dt) = p(t) + v*dt",
-            output_index / max(1, total - 1),
+            output_index / max(1, ball_total - 1),
             badge=f"VELOCIDAD ESTIMADA {math.hypot(vx, vy):.2f} m/s | HORIZONTE 1.5 s",
         )
         trail = path[max(0, current_index - 35) : current_index + 1]
@@ -775,6 +789,129 @@ def _prediction_scene(writer, size, fps, seconds, analysis: dict) -> None:
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.56 if size[0] > 1200 else 0.45,
                 (240, 245, 250),
+                2,
+                cv2.LINE_AA,
+            )
+        writer.write(canvas)
+    if robot_forecasts:
+        _robot_prediction_frames(
+            writer,
+            size,
+            total - ball_total,
+            robot_forecasts[:2],
+            field_length=field_length,
+            field_width=field_width,
+        )
+
+
+def _robot_prediction_frames(
+    writer,
+    size,
+    total_frames,
+    forecasts,
+    *,
+    field_length,
+    field_width,
+) -> None:
+    branch_colors = {
+        "continue": (255, 220, 70),
+        "turn_left": (60, 220, 255),
+        "turn_right": (80, 100, 245),
+    }
+    robot_colors = [(245, 245, 245), (70, 70, 235)]
+    for output_index in range(total_frames):
+        reveal = output_index / max(1, total_frames - 1)
+        canvas = _field_canvas(size)
+        _chrome(
+            canvas,
+            "PREDICCION MULTIMODAL DE ROBOTS",
+            "Ajuste lineal reciente + giros cinematicos + restriccion de campo",
+            reveal,
+            badge="COORDENADAS METRICAS | PROBABILIDADES HEURISTICAS, NO CALIBRADAS",
+        )
+        for robot_index, forecast in enumerate(forecasts):
+            state = forecast["state"]
+            current = _field_to_canvas(
+                float(state["field_x_m"]),
+                float(state["field_y_m"]),
+                size,
+                field_length,
+                field_width,
+            )
+            robot_color = robot_colors[robot_index % len(robot_colors)]
+            cv2.circle(canvas, current, 16, robot_color, -1, cv2.LINE_AA)
+            cv2.circle(canvas, current, 20, (15, 20, 24), 3, cv2.LINE_AA)
+            cv2.putText(
+                canvas,
+                f"R{forecast['track_id']}",
+                (current[0] + 22, current[1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.62 if size[0] > 1200 else 0.48,
+                robot_color,
+                2,
+                cv2.LINE_AA,
+            )
+            for branch in forecast["trajectories"]:
+                points = branch.get("points", [])
+                visible_count = max(2, int(round(1 + reveal * max(1, len(points) - 1))))
+                canvas_points = [
+                    _field_to_canvas(
+                        float(point["field_x_m"]),
+                        float(point["field_y_m"]),
+                        size,
+                        field_length,
+                        field_width,
+                    )
+                    for point in points[:visible_count]
+                ]
+                color = branch_colors.get(branch["mode"], (220, 220, 220))
+                thickness = 5 if branch["mode"] == "continue" else 3
+                for first, second in zip(canvas_points, canvas_points[1:]):
+                    cv2.line(canvas, first, second, color, thickness, cv2.LINE_AA)
+                if canvas_points:
+                    cv2.circle(canvas, canvas_points[-1], 7, color, -1, cv2.LINE_AA)
+
+        legend_x = int(size[0] * 0.12)
+        legend_width = int(size[0] * (0.49 if size[0] > size[1] else 0.77))
+        legend_height = 72 + 58 * len(forecasts)
+        legend_y = size[1] - BOTTOM_BAND - legend_height - 18
+        cv2.rectangle(
+            canvas,
+            (legend_x - 14, legend_y - 32),
+            (legend_x + legend_width, legend_y + legend_height),
+            (15, 25, 29),
+            -1,
+        )
+        cv2.putText(
+            canvas,
+            "Ramas: recta / giro izq. / giro der.",
+            (legend_x, legend_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.58 if size[0] > 1200 else 0.44,
+            (245, 248, 250),
+            2,
+            cv2.LINE_AA,
+        )
+        for index, forecast in enumerate(forecasts):
+            probabilities = {
+                branch["mode"]: float(branch["probability"])
+                for branch in forecast["trajectories"]
+            }
+            history = forecast.get("history", {})
+            text = (
+                f"R{forecast['track_id']} {float(forecast['state']['speed_m_s']):.2f} m/s | "
+                f"{probabilities.get('continue', 0):.0%} / "
+                f"{probabilities.get('turn_left', 0):.0%} / "
+                f"{probabilities.get('turn_right', 0):.0%} | "
+                f"RMSE {float(history.get('fit_rmse_m', 0)):.3f} m"
+            )
+            cv2.putText(
+                canvas,
+                text,
+                (legend_x, legend_y + 52 + index * 58),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                _cv_fit_scale(text, legend_width - 20, 0.54 if size[0] > 1200 else 0.42),
+                robot_colors[index % len(robot_colors)],
                 2,
                 cv2.LINE_AA,
             )

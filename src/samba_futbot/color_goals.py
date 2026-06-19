@@ -34,7 +34,11 @@ def adapt_goal_color_profiles_from_detections(
     resolved_profiles = dict(profiles or DEFAULT_GOAL_COLOR_PROFILES)
     broad = broad_profiles or _broad_goal_profiles()
     goal_detections = [
-        det for det in seed_detections if det.class_name in resolved_profiles and det.class_name in broad
+        det
+        for det in seed_detections
+        if det.class_name in resolved_profiles
+        and det.class_name in broad
+        and _is_observed_goal_seed(det)
     ]
     if not goal_detections:
         return resolved_profiles
@@ -219,10 +223,13 @@ def enforce_goal_frame_constraints(
     require_field_overlap: bool = False,
     infer_missing_opposite: bool = False,
     inferred_goal_score: float = 0.28,
+    opposite_goal_axis: str = "auto",
     field_margin_px: float = 18.0,
 ) -> list[Detection]:
     if max_per_frame_per_class <= 0:
         raise ValueError("max_per_frame_per_class must be positive.")
+    if opposite_goal_axis not in {"auto", "horizontal", "vertical"}:
+        raise ValueError("opposite_goal_axis must be auto, horizontal, or vertical.")
 
     fields_by_frame: dict[int, list[Detection]] = {}
     for det in field_detections or []:
@@ -255,6 +262,7 @@ def enforce_goal_frame_constraints(
                 kept_goals,
                 fields_by_frame,
                 score=inferred_goal_score,
+                axis=opposite_goal_axis,
             )
         )
     return sorted(
@@ -268,6 +276,7 @@ def _infer_missing_opposite_goals(
     fields_by_frame: dict[int, list[Detection]],
     *,
     score: float,
+    axis: str,
 ) -> list[Detection]:
     inferred: list[Detection] = []
     goals_by_frame: dict[int, list[Detection]] = {}
@@ -285,7 +294,11 @@ def _infer_missing_opposite_goals(
         source = max(frame_goals, key=lambda det: (det.score, det.area or 0.0))
         field = max(fields, key=lambda det: det.area or _box_area(det.box))
         inferred_class = next(iter(missing_classes))
-        inferred_box = _mirror_box_across_field(source.box, field.box)
+        inferred_box, resolved_axis = _mirror_box_across_field(
+            source.box,
+            field.box,
+            axis=axis,
+        )
         inferred.append(
             Detection(
                 frame_index=frame_index,
@@ -299,6 +312,8 @@ def _infer_missing_opposite_goals(
                     "inferred_from_class": source.class_name,
                     "inferred_from_box": list(source.box),
                     "field_box": list(field.box),
+                    "inference_axis": resolved_axis,
+                    "evidence": "geometry_only",
                 },
             )
         )
@@ -308,10 +323,25 @@ def _infer_missing_opposite_goals(
 def _mirror_box_across_field(
     box: tuple[float, float, float, float],
     field_box: tuple[float, float, float, float],
-) -> tuple[float, float, float, float]:
+    *,
+    axis: str,
+) -> tuple[tuple[float, float, float, float], str]:
     x1, y1, x2, y2 = box
-    field_x1, _, field_x2, _ = field_box
-    return (field_x1 + field_x2 - x2, y1, field_x1 + field_x2 - x1, y2)
+    field_x1, field_y1, field_x2, field_y2 = field_box
+    resolved_axis = axis
+    if resolved_axis == "auto":
+        field_width = max(0.0, field_x2 - field_x1)
+        field_height = max(0.0, field_y2 - field_y1)
+        resolved_axis = "vertical" if field_height > field_width else "horizontal"
+    if resolved_axis == "vertical":
+        return (
+            (x1, field_y1 + field_y2 - y2, x2, field_y1 + field_y2 - y1),
+            resolved_axis,
+        )
+    return (
+        (field_x1 + field_x2 - x2, y1, field_x1 + field_x2 - x1, y2),
+        resolved_axis,
+    )
 
 
 def _box_area(box: tuple[float, float, float, float]) -> float:
@@ -358,7 +388,7 @@ def _seed_windows_by_class(
     if not seed_detections:
         return windows
     for det in seed_detections:
-        if det.class_name not in DEFAULT_GOAL_COLOR_PROFILES:
+        if det.class_name not in DEFAULT_GOAL_COLOR_PROFILES or not _is_observed_goal_seed(det):
             continue
         x1, y1, x2, y2 = det.box
         margin = max(0.0, margin_px)
@@ -366,6 +396,15 @@ def _seed_windows_by_class(
             (x1 - margin, y1 - margin, x2 + margin, y2 + margin)
         )
     return windows
+
+
+def _is_observed_goal_seed(detection: Detection) -> bool:
+    extra = detection.extra or {}
+    return not (
+        extra.get("source") == "goal_geometry"
+        or extra.get("evidence") == "geometry_only"
+        or detection.prompt == "geometry_inferred_opposite_goal"
+    )
 
 
 def _goal_is_on_field(

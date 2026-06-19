@@ -12,6 +12,7 @@ import numpy as np
 
 from .config import load_config
 from .io_utils import ensure_parent
+from .motion_prediction import predict_robot_trajectories, select_robot_prediction_snapshot
 from .play_state import BALL_CLASSES, FIELD_CLASSES, ROBOT_CLASSES, in_play_balls
 from .types import Detection, Point
 
@@ -213,6 +214,18 @@ def analyze_field_tracks(
     for record in path:
         grid_counts[int(record["row"])][int(record["col"])] += 1
     robot_zone_control = _robot_zone_control(robot_path)
+    robot_predictions = predict_robot_trajectories(
+        robot_path,
+        fps=fps or 30.0,
+        field_length_m=calibration.field_length_m,
+        field_width_m=calibration.field_width_m,
+    )
+    robot_prediction_showcase = select_robot_prediction_snapshot(
+        robot_path,
+        fps=fps or 30.0,
+        field_length_m=calibration.field_length_m,
+        field_width_m=calibration.field_width_m,
+    )
 
     return {
         "trajectory_scope": trajectory_scope,
@@ -251,6 +264,8 @@ def analyze_field_tracks(
         ],
         "path": path,
         "robot_path": robot_path,
+        "robot_predictions": robot_predictions,
+        "robot_prediction_showcase": robot_prediction_showcase,
     }
 
 

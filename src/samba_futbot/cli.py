@@ -3277,6 +3277,7 @@ def _enforce_goal_constraints_for_process(detections: list, config: dict) -> lis
         require_field_overlap=bool(goal_config.get("require_field_overlap", True)),
         infer_missing_opposite=bool(goal_config.get("infer_missing_opposite", False)),
         inferred_goal_score=float(goal_config.get("inferred_goal_score", 0.28)),
+        opposite_goal_axis=str(goal_config.get("opposite_goal_axis", "auto")),
         field_margin_px=float(goal_config.get("field_margin_px", 18.0)),
     )
 

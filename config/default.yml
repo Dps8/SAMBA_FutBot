@@ -165,6 +165,7 @@ goal_detection:
   require_field_overlap: true
   infer_missing_opposite: false
   inferred_goal_score: 0.28
+  opposite_goal_axis: auto
   field_margin_px: 18
   min_area: 180
   max_area: 80000

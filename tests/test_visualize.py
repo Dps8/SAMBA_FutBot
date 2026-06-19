@@ -23,6 +23,7 @@ from samba_futbot.visualize import (
     _recent_event,
     _should_draw_detection,
     _should_overlay_detection,
+    _supports_motion_trail,
     _visual_track_key,
     class_color,
     robot_ball_distances,
@@ -146,6 +147,15 @@ class VisualizeTest(unittest.TestCase):
         self.assertFalse(_should_draw_detection(inferred, style="analysis"))
         self.assertFalse(_should_overlay_detection(inferred))
         self.assertTrue(_should_draw_detection(measured, style="analysis"))
+
+    def test_motion_trails_are_limited_to_ball_and_robots(self):
+        self.assertTrue(_supports_motion_trail(Detection(0, "ball", 0.9, (0, 0, 4, 4), track_id=1)))
+        self.assertTrue(
+            _supports_motion_trail(Detection(0, "robots", 0.9, (0, 0, 8, 8), track_id=2))
+        )
+        self.assertFalse(
+            _supports_motion_trail(Detection(0, "goal_blue", 0.9, (0, 0, 8, 8), track_id=3))
+        )
 
     def test_shot_probability_reports_direction_speed_and_probability(self):
         previous = Detection(0, "ball", 1.0, (40, 10, 44, 14), track_id=1)
