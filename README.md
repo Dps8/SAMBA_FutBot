@@ -5,7 +5,7 @@ capitulo Vision por Computadora. El objetivo es segmentar y rastrear campo,
 robots y balon en videos de futbol robotico usando SAM 3, y convertir esas
 detecciones en metricas, eventos, mapas tacticos y videos demo.
 
-## Entrega Profesional 2026
+## Entrega Categoría Profesional 2026
 
 - **Equipo:** Pumas.
 - **Institución:** Universidad Nacional Autónoma de México (UNAM).
