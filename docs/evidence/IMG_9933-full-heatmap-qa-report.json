@@ -1,0 +1,18 @@
+{
+  "video": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-heatmap-timelapse-qa.mp4",
+  "image": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-heatmap-qa.png",
+  "frames": 23274,
+  "output_frames": 776,
+  "samples": 23784,
+  "fps": 29.98756851807718,
+  "output_fps": 30.0,
+  "write_every_n_frames": 30,
+  "class_name": "robots",
+  "team": null,
+  "robot_fallback_min_area": 3500.0,
+  "robot_fallback_max_area": 15000.0,
+  "robot_fallback_max_extent": 0.72,
+  "robot_fallback_max_aspect_ratio": 1.75,
+  "field_margin_m": 0.1,
+  "calibrated_field_filter": true
+}

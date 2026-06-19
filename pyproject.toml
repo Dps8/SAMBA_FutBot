@@ -4,12 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "samba-futbot"
-version = "1.0.0"
+version = "1.1.0"
 description = "Pipeline reproducible para el reto Copa FutBotMX Vision por Computadora."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
-authors = [{ name = "Equipo SAMBA FutBot" }]
+authors = [
+  { name = "Germán Alday Salazar" },
+  { name = "Raúl García Lemus" },
+  { name = "Darien Piña Sánchez" },
+]
 dependencies = [
   "numpy>=1.26,<3",
   "pandas>=2.2",

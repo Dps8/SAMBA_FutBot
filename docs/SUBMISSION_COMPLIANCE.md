@@ -18,9 +18,9 @@ fuente normativa es `Convocatoria_CopaFutBotMX-Meta-VF-20260429T020141.pdf`.
 |---|---|---|
 | 3.5.1 Campo, aliados, rivales y pelota | Cumplido con QA | SAM 3 segmenta campo/robots/pelota; la clasificacion de equipo usa apariencia y puede quedar `unknown` si no supera confianza. Las porterias azul/amarilla tienen prompt y fallback cromatico/geometrico. |
 | 3.5.1 Trayectorias y eventos | Cumplido | Tracks persistentes, trayectoria de pelota, distancia robot-balon, pases, tiros, intercepciones, colisiones, goles candidatos y estados de juego. |
-| 3.5.2 Visualizacion avanzada | Cumplido | Mapa de calor dinamico por robot, mapa tactico, posesion temporal, flujo, narrativa y vista analitica. |
-| 3.5.3 Demo de hasta 2 min | Cumplido | `SAMBA_FutBot-demo-final.mp4`: 45 s, 1920x1080, original+resultado, H.264, sin audio. Se publica en GitHub Release v1.0.0. |
-| 3.5.3 Reel de al menos 30 s | Archivo listo | `SAMBA_FutBot-reel-instagram.mp4`: 45 s, 1080x1920, H.264, sin audio. Falta publicar en Instagram y pegar el enlace publico en README. |
+| 3.5.2 Visualizacion avanzada | Cumplido | Mapa de calor dinamico y acumulado sobre `IMG_9933.MOV` completo (12:56, 23,278 cuadros), mapa tactico, posesion candidata, flujo, narrativa y vista analitica. |
+| 3.5.3 Demo de hasta 2 min | Cumplido | `SAMBA_FutBot-demo-final.mp4`: aproximadamente 103 s, 1920x1080, original+resultado, narrativa, analisis, multivista, heatmap completo, H.264 y sin audio. Se publica en GitHub Release v1.1.0. |
+| 3.5.3 Reel de al menos 30 s | Archivo listo | `SAMBA_FutBot-reel-instagram.mp4`: aproximadamente 63 s, 1080x1920, H.264, sin audio. Falta publicar en Instagram y reemplazar el enlace provisional del README. |
 | 3.5.4 README completo | Cumplido salvo enlace externo | Arquitectura, instalacion, reproduccion, entorno, resultados, capturas, licencia y creditos estan incluidos. |
 
 ## 3.6 Software de terceros
@@ -42,12 +42,14 @@ proyecto.
 
 ## Metricas defendibles
 
-El clip superior seleccionado tiene 300 cuadros, 100% de cobertura de pelota,
-campo y robots, 299 muestras de movimiento de pelota, cero huecos de track y
-3,200 detecciones. La velocidad se expresa en px/s en esta evidencia porque la
-homografia de ese clip no supero el umbral para afirmar m/s. La asignacion de
-equipo y posesion permanecen bajo compuerta QA y no se presentan como metricas
-finales del clip.
+La corrida completa de `IMG_9933.MOV` declara 23,278 cuadros (12:56), de los
+cuales 23,274 son legibles: pelota en 97.2% y robots en 83.5% de cuadros. El
+mapa de calor usa 23,784 muestras despues de filtros geometricos y de campo
+calibrado sobre toda la duracion.
+Las distancias y velocidades en metros se calculan con homografia de cancha
+2.43 x 1.82 m sobre asociaciones validas. La fragmentacion del tracking de la
+corrida cromatica completa impide defender posesion por equipo como verdad de
+campo; se presenta como candidata con confianza y alcance explicitos.
 
 ## Unico paso externo pendiente
 

@@ -3,6 +3,28 @@
 Generated artifacts for the current SAM3 windowed pipeline are stored under
 `outputs/`.
 
+## Full-match top-camera evidence (18 June 2026)
+
+`IMG_9933.MOV` was processed end to end for the submission heatmap: 23,278
+declared frames (23,274 readable), 29.9876 fps and 776.3 seconds (12:56). The hybrid CPU fallback
+produced ball detections on 97.2% of frames and filtered robot detections on
+83.5% of frames. The accumulated heatmap uses 23,784 robot observations after
+removing small, oversized, overfilled and elongated dark-object artifacts and
+requiring the centroid to fall inside the calibrated field with a 0.10 m
+margin. This removes the phone-shaped false positive seen in the previous
+short demo.
+
+The dynamic heatmap processes every source frame and writes one of every 30
+frames at 30 fps, yielding a verifiable 30x timelapse without subsampling the
+underlying accumulation. Outputs and their machine-readable report are under
+`outputs/review/2026-06-19/full_match_IMG_9933_cpu/`.
+
+The full color-only tracker is intentionally reported with its limitation:
+2,772 robot track fragments make global team possession unsuitable as a final
+ground-truth claim. Team possession, goals and interventions remain candidates
+behind QA gates. Metric distances and speeds use the 2.43 x 1.82 m homography
+only for valid in-play associations; pixel metrics are kept separate.
+
 ## Processed Videos
 
 | Video | Frames | Detections | Ball detections | Ball tracks | Demo |

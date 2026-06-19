@@ -1,0 +1,44 @@
+{
+  "schema": "samba_futbot.full_match_evidence.v1",
+  "source": {
+    "video": "IMG_9933.MOV",
+    "camera": "top",
+    "declared_frames": 23278,
+    "readable_frames": 23274,
+    "fps": 29.98756851807718,
+    "duration_seconds": 776.255,
+    "field_m": [2.43, 1.82]
+  },
+  "coverage": {
+    "ball_frame_ratio": 0.9716851422187849,
+    "robot_frame_ratio": 0.8350519893443328
+  },
+  "heatmap": {
+    "source_frames_processed": 23274,
+    "output_frames": 776,
+    "output_fps": 30.0,
+    "write_every_n_frames": 30,
+    "robot_samples": 23784,
+    "field_margin_m": 0.1,
+    "fallback_area_range": [3500, 15000],
+    "fallback_max_extent": 0.72,
+    "fallback_max_aspect_ratio": 1.75
+  },
+  "game_state": {
+    "playable_frames": 16985,
+    "method": "ball inside calibrated field or held by robot"
+  },
+  "metric_trajectory": {
+    "scope": "calibrated in-field ball associations",
+    "samples": 16316,
+    "distance_m": 50.97437841751962,
+    "mean_speed_m_s": 0.0921286983916656,
+    "max_speed_m_s": 2.3639775751070813,
+    "out_of_bounds_samples": 0
+  },
+  "limitations": [
+    "The CPU color fallback fragments robot identities over the full match.",
+    "Team possession and external-event counts remain QA-gated candidates.",
+    "The heatmap represents filtered activity, not persistent robot identity."
+  ]
+}

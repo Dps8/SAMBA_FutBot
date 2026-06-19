@@ -7,25 +7,38 @@ detecciones en metricas, eventos, mapas tacticos y videos demo.
 
 ## Entrega Profesional 2026
 
-- **Demo final (45 s, 1920x1080, sin audio):**
-  [GitHub Release v1.0.0](https://github.com/Dps8/SAMBA_FutBot/releases/download/v1.0.0/SAMBA_FutBot-demo-final.mp4).
-- **Reel listo para Instagram (45 s, 1080x1920, sin audio):**
-  [descargar desde el release](https://github.com/Dps8/SAMBA_FutBot/releases/download/v1.0.0/SAMBA_FutBot-reel-instagram.mp4).
-- **Enlace publico de Instagram:** pendiente de pegar despues de publicar el
-  reel, antes del cierre del 19 de junio de 2026 a las 23:59.
+- **Equipo:** Pumas.
+- **Institución:** Universidad Nacional Autónoma de México (UNAM).
+- **Integrantes:** Germán Alday Salazar, Raúl García Lemus y Darien Piña Sánchez.
+- **Demo final (aprox. 103 s, 1920x1080, H.264, sin audio):**
+  [GitHub Release v1.1.0](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.1.0).
+- **Reel listo para Instagram (aprox. 63 s, 1080x1920, H.264, sin audio):**
+  se incluye en el mismo release.
+- **Enlace publico de Instagram (provisional):**
+  [reel pendiente de publicacion](https://www.instagram.com/reel/PENDIENTE_PUBLICACION/).
 - **Matriz de cumplimiento:** [`docs/SUBMISSION_COMPLIANCE.md`](docs/SUBMISSION_COMPLIANCE.md).
 - **Metricas reproducibles:** [`docs/evidence/`](docs/evidence/).
 - **Licencias y atribuciones:** [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-El demo muestra el video original junto al resultado, segmentacion y tracking,
-distancia al balon, eventos, mapa de calor dinamico, metricas cuantitativas y
-el experimento de fine-tuning. La salida H.264 no contiene pista de audio.
+El demo muestra original y resultado, segmentacion y tracking, modulos separados
+de narrativa y analisis, un gol candidato rotulado con confianza, dos vistas de
+camara, distancias y velocidades metricas, mapa tactico, mapa de calor de un
+partido completo, metricas cuantitativas y el experimento de fine-tuning. La
+salida H.264 no contiene pista de audio.
 
 ![Original y resultado SAMBA FutBot](docs/assets/submission-analysis.jpg)
 
 ![Mapa de calor dinamico](docs/assets/submission-heatmap.jpg)
 
+![Mapa tactico calibrado](docs/assets/submission-field-map.jpg)
+
 ![Metricas del clip validado](docs/assets/submission-metrics.jpg)
+
+La evidencia numerica de la corrida completa esta en
+[`full-match-IMG_9933-summary.json`](docs/evidence/full-match-IMG_9933-summary.json),
+acompanada por el reporte exacto del heatmap y las metricas operativas. El
+manifiesto de video registra codec, resolucion, duracion, entradas y alcance de
+cada afirmacion.
 
 La ruta actual no depende solo de un prompt a SAM 3. Para la camara superior se
 usa una estrategia hibrida:
@@ -52,14 +65,20 @@ usa una estrategia hibrida:
 - Campo oficial usado para homografia: `2.43 m x 1.82 m`.
 - Pelota oficial considerada: pelota naranja tipo golf, `42 mm`; el color se
   maneja como perfil configurable, no como unica fuente de deteccion.
-- Suite local: 265 pruebas aprobadas, 1 omitida y 6 subpruebas aprobadas.
+- Suite local: 279 pruebas y 6 subpruebas aprobadas.
 - Clip superior validado: 100% de cobertura de pelota, campo y robots en 300
   cuadros; 299 muestras de trayectoria y cero huecos de pelota.
 - Fine-tuning validado sobre 128 imagenes: AP global `0.2299 -> 0.3586`
   (`+56.0%`) y AP de robots `0.4496 -> 0.7068` (`+57.2%`). El AP de pelota
   pequena retrocedio `20.9%`; se documenta como limitacion, no se oculta.
-- Mapa de calor dinamico validado: 300 cuadros y 2,000 muestras de actividad.
-- Resultados finales locales: `outputs/review/2026-06-18/submission`.
+- Mapa de calor de partido completo: `IMG_9933.MOV`, 12:56, 23,278 cuadros
+  declarados y 23,274 legibles; 23,784 muestras de robots despues de filtros
+  geometricos y de pertenencia al campo calibrado.
+- Cobertura en la corrida completa: pelota 97.2% y robots 83.5% de cuadros.
+- Metricas en metros: se calculan con homografia sobre cancha de 2.43 x 1.82 m
+  y se rotulan por alcance; goles y posesion automatica permanecen candidatos
+  cuando no superan la compuerta QA.
+- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_1`.
 - Evidencia pequena y versionable: `docs/evidence` y `docs/assets`.
 
 ## Estructura Del Repositorio
@@ -67,6 +86,7 @@ usa una estrategia hibrida:
 ```text
 config/
   default.yml                         Configuracion principal: prompts, SAM3, tracking y analisis.
+  calibrations/IMG_9933_top.yml       Homografia validada de la camara superior.
   top_camera_homography_template.yml  Plantilla de homografia con medidas oficiales.
 
 data/
@@ -1091,13 +1111,22 @@ vez:
 ```powershell
 $env:PYTHONPATH="src"
 python -m samba_futbot.cli render-heatmap `
-  --video "data\clips\clip-superior.mp4" `
-  --tracks "outputs\tracks\clip-in-play-tracks.jsonl" `
+  --video "data\raw\Meta_Glasses\18abril\Camara_superior\IMG_9933.MOV" `
+  --tracks "outputs\review\2026-06-19\full_match_IMG_9933_cpu\IMG_9933-full-tracks-clean.jsonl" `
   --out-video "outputs\submission\robots-heatmap.mp4" `
   --out-image "outputs\submission\robots-heatmap.png" `
+  --report-out "outputs\submission\robots-heatmap-report.json" `
   --class-name robots `
-  --radius-px 34 `
-  --alpha 0.52
+  --radius-px 30 `
+  --alpha 0.54 `
+  --write-every-n-frames 30 `
+  --output-fps 30 `
+  --robot-fallback-min-area 3500 `
+  --robot-fallback-max-area 15000 `
+  --robot-fallback-max-extent 0.72 `
+  --robot-fallback-max-aspect-ratio 1.75 `
+  --field-calibration "config\calibrations\IMG_9933_top.yml" `
+  --field-margin-m 0.10
 ```
 
 Con un video de analisis, el mapa de calor y los JSON de evidencia se construyen
@@ -1105,16 +1134,23 @@ las dos salidas finales:
 
 ```powershell
 python scripts/build_submission_videos.py `
+  --narrative-video "outputs\videos\clip-narrative-demo.mp4" `
   --analysis-video "outputs\videos\clip-analysis-demo.mp4" `
+  --normal-video "outputs\videos\normal-view-demo.mp4" `
+  --alternate-video "outputs\videos\alternate-view-demo.mp4" `
   --heatmap-video "outputs\submission\robots-heatmap.mp4" `
+  --heatmap-image "outputs\submission\robots-heatmap.png" `
+  --field-map "outputs\field_analysis\clip-field-map.png" `
   --metrics "outputs\metrics\clip-metrics.json" `
+  --field-analysis "outputs\field_analysis\clip-field-analysis.json" `
   --finetune "outputs\finetune\comparison.json" `
   --out-dir "outputs\submission\final"
 ```
 
-El script produce un demo `1920x1080` y un reel `1080x1920`, ambos de 45
-segundos, sin audio. Si encuentra FFmpeg o `imageio-ffmpeg`, convierte a H.264,
-`yuv420p` y activa `faststart`; de otro modo conserva una salida MP4V valida.
+El script produce un demo `1920x1080` menor a dos minutos y un reel
+`1080x1920` mayor a 30 segundos, ambos sin audio. Si encuentra FFmpeg o
+`imageio-ffmpeg`, convierte a H.264, `yuv420p` y activa `faststart`; de otro
+modo conserva una salida MP4V valida.
 
 ## Entorno Validado
 

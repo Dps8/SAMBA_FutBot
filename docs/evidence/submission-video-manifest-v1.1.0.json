@@ -1,0 +1,52 @@
+{
+  "schema": "samba_futbot.submission_videos.v2",
+  "team": "Pumas",
+  "institution": "Universidad Nacional Autónoma de México (UNAM)",
+  "members": [
+    "Germán Alday Salazar",
+    "Raúl García Lemus",
+    "Darien Piña Sánchez"
+  ],
+  "audio": false,
+  "products": [
+    {
+      "kind": "demo",
+      "path": "outputs\\review\\2026-06-19\\submission_v1_1\\SAMBA_FutBot-demo-final.mp4",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "frames": 3090,
+      "duration_seconds": 103.0,
+      "bytes": 33500523
+    },
+    {
+      "kind": "reel",
+      "path": "outputs\\review\\2026-06-19\\submission_v1_1\\SAMBA_FutBot-reel-instagram.mp4",
+      "codec": "h264",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "frames": 1890,
+      "duration_seconds": 63.0,
+      "bytes": 26084699
+    }
+  ],
+  "inputs": {
+    "narrative_video": "outputs\\review\\2026-06-16\\visual_fix_check\\videos\\IMG_9938-visual-fix-filtered-narrative.mp4",
+    "analysis_video": "outputs\\review\\2026-06-16\\visual_fix_check\\videos\\IMG_9938-no-hold-analysis.mp4",
+    "normal_video": "outputs\\videos\\video-429-full-windowed-orange-prompt-demo.mp4",
+    "alternate_video": "outputs\\videos\\video-680_singular_display-full-windowed-orange-v2-clipped-demo.mp4",
+    "heatmap_video": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-heatmap-timelapse-qa.mp4",
+    "heatmap_image": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-heatmap-qa.png",
+    "field_map": "outputs\\review\\2026-06-19\\rebuild\\analysis_9933\\IMG_9933-marker-tactical-map.png",
+    "metrics": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-metrics.json",
+    "field_analysis": "outputs\\review\\2026-06-19\\full_match_IMG_9933_cpu\\IMG_9933-full-in-play-field-analysis.json",
+    "finetune": "docs\\evidence\\sam3-finetune-comparison.json"
+  },
+  "evidence_scope": {
+    "heatmap": "full source match: 12:56, 23,278 frames",
+    "metric_units": "homography-calibrated field: 2.43 x 1.82 m",
+    "events": "candidates requiring review unless explicitly confirmed"
+  }
+}
