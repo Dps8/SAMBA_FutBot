@@ -3,7 +3,7 @@
 Generated artifacts for the current SAM3 windowed pipeline are stored under
 `outputs/`.
 
-## Final submission v1.2.1 (19 June 2026)
+## Final submission v1.2.2 (19 June 2026)
 
 The final delivery integrates two H.264 formats: a 116-second horizontal demo
 and an 89-second vertical reel. Both show the narrative and analysis modules,
@@ -24,7 +24,7 @@ ball regression remains in the evidence JSON so the presentation does not hide
 the known limitation.
 
 Final local artifacts are under
-`outputs/review/2026-06-19/submission_v1_2_1/`. Small versioned evidence is under
+`outputs/review/2026-06-19/submission_v1_2_2/`. Small versioned evidence is under
 `docs/evidence/`, with verified stills under `docs/assets/`.
 
 The goal sequence in `video-427` is machine-verifiable rather than only a
@@ -35,6 +35,26 @@ implements rules 4.4.5 and 7.4.4. The emitted `goal_confirmed` event has
 confidence 0.92 and updates the confirmed yellow scoreboard to 1-0. The demo
 overlays the ball box, track, trajectory, goal region, goal line, back wall and
 temporal persistence counter.
+
+## Goal recovery and robot forecasts (18 June 2026)
+
+The `IMG_9938` audit exposed a portrait-camera geometry error: the missing blue
+goal had been mirrored horizontally beside the yellow goal. The corrected
+constraint selects the symmetry axis from the detected field orientation and
+does not let `geometry_only` seeds restrict color search. Broad blue HSV plus
+field membership observes the physical blue goal in all 300 frames of the
+reviewed clip; the yellow goal remains the higher-confidence SAM 3 result. The
+new tracks contain zero geometry-only goals, one goal per color per frame and
+render no goal trails.
+
+Robot forecasting now uses metric robot paths instead of reusing only the ball
+trajectory. A least-squares velocity estimate over recent observations creates
+constant-heading, left-turn and right-turn branches over a 1.5-second horizon.
+Branch weights combine fit consistency with the fraction of the path that
+stays on the 2.43 x 1.82 m field and are normalized to one. They are explicitly
+labeled heuristic and uncalibrated. The presentation snapshot suppresses
+spatially coincident track hypotheses and displays at most two distinct robots,
+including speed, branch weights and fit RMSE.
 
 ## Full-match top-camera evidence (18 June 2026)
 

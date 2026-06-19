@@ -19,9 +19,10 @@ mantienen en el `README.md` principal para evitar dos manuales divergentes.
 
 ## Evidencia Final
 
-- `submission-video-manifest-v1.2.1.json`: entradas, codec, resolucion,
+- `submission-video-manifest-v1.2.2.json`: entradas, codec, resolucion,
   duracion y alcance de afirmaciones del demo y reel.
-- `submission-video-qa-v1.2.1.json`: hashes, decodificacion y cuadros revisados.
+- `submission-video-qa-v1.2.2.json`: hashes, decodificacion completa, porterias
+  observadas y predicciones de robots revisadas.
 - `video-427-calibrated-goal-events.json`: disparo y gol confirmado mediante
   pelota rastreada, cruce dirigido, persistencia y contacto con pared trasera.
 - `video-427-calibrated-goal-summary.json`: marcador confirmado y resumen de
@@ -41,9 +42,10 @@ Release o se generan bajo `outputs/`; no se duplican dentro de `docs/`.
 ## Capturas
 
 `assets/` contiene un conjunto pequeno de cuadros finales enlazados desde el
-README: enfoques, analisis, gol, prediccion, heatmap, mapa tactico y validacion
-cuantitativa. Las capturas antiguas o no referenciadas se excluyen para evitar
-confundir resultados preliminares con la entrega vigente.
+README: enfoques, analisis, ambas porterias, prediccion de pelota/robots,
+heatmap, mapa tactico y validacion cuantitativa. Las capturas antiguas o no
+referenciadas se excluyen para evitar confundir resultados preliminares con la
+entrega vigente.
 
 ## Criterio De Publicacion
 

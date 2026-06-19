@@ -11,7 +11,7 @@ detecciones en metricas, eventos, mapas tacticos y videos demo.
 - **Institución:** Universidad Nacional Autónoma de México (UNAM).
 - **Integrantes:** Germán Alday Salazar, Raúl García Lemus y Darien Piña Sánchez.
 - **Demo final (116 s, 1920x1080, H.264):**
-  [GitHub Release v1.2.1](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.2.1).
+  [GitHub Release v1.2.2](https://github.com/Dps8/SAMBA_FutBot/releases/tag/v1.2.2).
 - **Reel listo para Instagram (89 s, 1080x1920, H.264):**
   se incluye en el mismo release.
 - **Enlace publico de Instagram (provisional):**
@@ -28,11 +28,17 @@ fine-tuning.
 
 ![Enfoques de tiempo, geometria y QA](docs/assets/submission-approach.jpg)
 
+![Percepcion y fusion de evidencia](docs/assets/submission-perception-fusion.jpg)
+
 ![Original y resultado SAMBA FutBot](docs/assets/submission-analysis.jpg)
 
 ![Secuencia real de gol y cambio de marcador](docs/assets/submission-goal.jpg)
 
 ![Prediccion de movimiento y distancia metrica](docs/assets/submission-prediction.jpg)
+
+![Prediccion multimodal de robots](docs/assets/submission-robot-prediction.jpg)
+
+![Deteccion observada de ambas porterias](docs/assets/submission-goal-detection.jpg)
 
 ![Mapa de calor dinamico](docs/assets/submission-heatmap.jpg)
 
@@ -43,7 +49,7 @@ fine-tuning.
 La evidencia numerica de la corrida completa esta en
 [`full-match-IMG_9933-summary.json`](docs/evidence/full-match-IMG_9933-summary.json),
 acompanada por el reporte exacto del heatmap y las metricas operativas. El
-[`manifiesto v1.2.1`](docs/evidence/submission-video-manifest-v1.2.1.json)
+[`manifiesto v1.2.2`](docs/evidence/submission-video-manifest-v1.2.2.json)
 registra codec, resolucion, duracion, entradas y alcance de cada afirmacion.
 
 La ruta actual no depende solo de un prompt a SAM 3. Para la camara superior se
@@ -63,6 +69,42 @@ usa una estrategia hibrida:
 10. Se asignan IDs de tracking y equipo por color dominante del robot.
 11. Se calculan metricas, posesion por equipo, eventos, homografia, reportes y QA.
 
+### Criterio de fusion y trazabilidad
+
+Cada fuente propone evidencia, no una verdad aislada. SAM 3 aporta mascara,
+caja, score del modelo, prompt y cuadro de origen. El detector HSV aporta
+componentes conexos con rango cromatico, area y extension; se usa para aumentar
+recall cuando el objeto conserva un color reconocible. La fusion compara clase,
+IoU, contencion, area, cercania y pertenencia al campo. Despues aplica
+restricciones del dominio: una pelota por cuadro, una porteria por color y
+separacion espacial minima entre robots.
+
+Una semilla marcada `source: goal_geometry` no puede recalibrar el color ni
+cerrar la ventana de busqueda HSV: primero debe aparecer evidencia observada de
+SAM 3 o color. Esto evita que una estimacion geometrica incorrecta bloquee una
+porteria real. Si se habilita la inferencia de la porteria opuesta, el eje se
+elige por la relacion de aspecto del campo (`horizontal` o `vertical`) y el
+resultado conserva `evidence: geometry_only`; no se dibuja ni confirma un gol
+por si solo. Los scores de SAM 3 y de los filtros no son probabilidades
+calibradas y se reportan con su procedencia.
+
+### Prediccion de pelota y robots
+
+La prediccion opera despues de tracking y homografia. Para cada robot se ajustan
+dos rectas por minimos cuadrados sobre su historia reciente en metros,
+`x(t)=x0+vx*t` y `y(t)=y0+vy*t`. El residuo RMSE del ajuste mide consistencia
+local. Desde el estado estimado se integran tres ramas durante 1.5 s:
+velocidad constante, giro izquierdo a `+38 grados/s` y giro derecho a
+`-38 grados/s`. Las ramas que salen del rectangulo `2.43 x 1.82 m` reciben una
+penalizacion y los pesos restantes se normalizan para sumar uno.
+
+Esos porcentajes son **probabilidades heuristicas relativas**, no frecuencias
+calibradas por un clasificador entrenado. El JSON conserva historial, velocidad
+en m/s, RMSE, horizonte, puntos metricos, estado dentro/fuera del campo y nota
+de alcance. Para la presentacion se selecciona un instante observado con alto
+movimiento y se eliminan forecasts espacialmente coincidentes, de modo que dos
+IDs sobre el mismo robot no se presenten como dos agentes diferentes.
+
 ## Estado Actual
 
 - Categoria de trabajo: profesional.
@@ -71,7 +113,7 @@ usa una estrategia hibrida:
 - Campo oficial usado para homografia: `2.43 m x 1.82 m`.
 - Pelota oficial considerada: pelota naranja tipo golf, `42 mm`; el color se
   maneja como perfil configurable, no como unica fuente de deteccion.
-- Suite local: 291 pruebas y 6 subpruebas aprobadas.
+- Suite local: 297 pruebas y 6 subpruebas aprobadas.
 - Clip superior limpio: maximo dos robots y una pelota por cuadro; 205
   candidatos de pelota revisados, 203 aceptados y dos falsos puntos sobre
   robots eliminados por contexto.
@@ -89,7 +131,7 @@ usa una estrategia hibrida:
   rastreada, cruce dirigido en el cuadro 356, persistencia temporal y contacto
   con la pared trasera exigido por las reglas; la evidencia registra seis
   cuadros fuera y seis dentro.
-- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_2_1`.
+- Resultados finales locales: `outputs/review/2026-06-19/submission_v1_2_2`.
 - Evidencia pequena y versionable: `docs/evidence` y `docs/assets`.
 
 ## Estructura Del Repositorio
@@ -217,7 +259,9 @@ Puntos clave:
   exacto.
 - `goal_detection.spatial_gate_from_seeds`: si hay cajas semilla de SAM3,
   limita la busqueda cromatica a regiones cercanas a esas coordenadas para
-  evitar objetos externos del mismo color.
+  evitar objetos externos del mismo color. Las semillas puramente geometricas
+  se excluyen de esta compuerta para no ocultar una porteria observada en otra
+  zona del campo.
 - `goal_detection.require_seed_for_color`: si esta activo, una clase de
   porteria necesita al menos una caja semilla de SAM3 antes de aceptar
   detecciones cromaticas de esa clase. El default actual es `false` para que la
@@ -229,7 +273,9 @@ Puntos clave:
   detecta una porteria de color, crea la porteria opuesta por simetria respecto
   al eje central del campo y la marca con `source: goal_geometry`. Esta apagado
   por defecto porque puede crear una porteria falsa junto a la porteria real si
-  la geometria de campo no esta limpia.
+  la geometria de campo no esta limpia. `goal_detection.opposite_goal_axis`
+  acepta `auto`, `horizontal` o `vertical`; `auto` usa la orientacion de la caja
+  del campo.
 - `robot_filter.enabled`: activa el filtro conservador para camara superior.
   Reduce cajas repetidas de robots usando varios criterios combinados: area
   minima, area maxima relativa al frame, IoU, contencion, distancia minima entre
@@ -624,7 +670,9 @@ Que hace internamente:
 5. Si SAM3 encontro porterias, calibra el HSV real desde esas cajas.
 6. Agrega porterias por color azul/amarillo si el fallback cromatico esta
    activo.
-7. Si solo aparece una porteria, infiere la opuesta por geometria del campo.
+7. Si se habilita explicitamente y solo aparece una porteria, propone la
+   opuesta por el eje geometrico correspondiente; queda marcada como evidencia
+   solo geometrica y no se usa como deteccion observada.
 8. Fusiona campo, robots, porterias y candidatos de pelota.
 9. Refina la pelota con `refine-ball`.
 10. Genera tracks y asigna equipo de robots por color.
@@ -663,7 +711,8 @@ Parametros utiles:
   cambios de posesion o colisiones.
 - `--render-analysis / --no-render-analysis`: genera el video tecnico con
   cajas, scores, distancia de cada robot al balon, velocidad del balon,
-  trayectoria y una probabilidad heuristica de presion de tiro hacia porteria.
+  trayectoria, probabilidad heuristica de presion de tiro y ramas metricas de
+  movimiento para pelota y robots.
 - `--analysis-freeze`: solo para el video `analysis`; congela frames relevantes
   para explicar eventos importantes como tiros, goles candidatos, pases,
   intercepciones o colisiones.

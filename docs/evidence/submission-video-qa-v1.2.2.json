@@ -1,0 +1,72 @@
+{
+  "schema": "samba_futbot.submission_video_qa.v3",
+  "release": "v1.2.2",
+  "validated_at": "2026-06-18",
+  "products": [
+    {
+      "kind": "demo",
+      "path": "SAMBA_FutBot-demo-final.mp4",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30.0,
+      "frames": 3480,
+      "duration_seconds": 116.0,
+      "sha256": "56229d49049a4527a6c7872fadfc7932da23fdf4e39b4dbc8ade6ee5415d81e4",
+      "full_decode": "passed",
+      "checked_seconds": [6, 9, 17, 30, 36.8, 52, 59, 63, 79, 108]
+    },
+    {
+      "kind": "reel",
+      "path": "SAMBA_FutBot-reel-instagram.mp4",
+      "codec": "h264",
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "frames": 2670,
+      "duration_seconds": 89.0,
+      "sha256": "163c1a1abdc325493e839f1be1c06a1eb40cc6899066e1ee7a1a1edbc1455b43",
+      "full_decode": "passed",
+      "checked_seconds": [5, 8, 14, 26, 31, 43, 49, 52, 57, 81]
+    }
+  ],
+  "visual_assertions": {
+    "approach_descriptions_are_legible_and_method_specific": true,
+    "blue_goal_is_observed_at_the_physical_bottom_goal": true,
+    "yellow_goal_is_observed_at_the_physical_top_goal": true,
+    "no_geometry_only_goal_is_rendered": true,
+    "goal_objects_do_not_create_motion_trails": true,
+    "ball_prediction_is_visible": true,
+    "two_distinct_robot_forecasts_are_visible": true,
+    "robot_branch_weights_and_fit_rmse_are_legible": true,
+    "robot_probabilities_are_labeled_heuristic_and_uncalibrated": true,
+    "score_changes_only_after_back_wall_contact": true,
+    "full_match_heatmap_is_visible": true,
+    "team_and_institution_credits_are_visible": true
+  },
+  "goal_detection_evidence": {
+    "video": "IMG_9938_f001799_10s.mp4",
+    "frames": 300,
+    "goal_blue_observed_frames": 300,
+    "goal_yellow_observed_frames": 300,
+    "geometry_only_goals": 0,
+    "blue_method": "broad HSV family constrained to detected field",
+    "yellow_method": "SAM 3 semantic mask retained by fusion"
+  },
+  "robot_prediction_evidence": {
+    "reference_frame": 23,
+    "robots": [5, 6],
+    "speeds_m_s": [0.16, 0.16],
+    "branches": ["continue", "turn_left", "turn_right"],
+    "probability_model": "heuristic_kinematic_v1",
+    "horizon_seconds": 1.5,
+    "fit_rmse_m": [0.0055, 0.0053]
+  },
+  "goal_event_evidence": {
+    "video": "video-427_singular_display.mov",
+    "crossing_frame": 356,
+    "back_wall_contact_frame": 365,
+    "confidence": 0.92,
+    "validation": "directed crossing, persistence and calibrated back-wall contact"
+  }
+}
