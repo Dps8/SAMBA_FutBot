@@ -69,6 +69,24 @@ class FieldAnalysisTest(unittest.TestCase):
         self.assertEqual(analysis["grid"]["sample_counts"][1][1], 1)
         self.assertEqual(analysis["grid"]["sample_counts"][1][3], 1)
 
+    def test_calibration_selects_in_field_ball_without_frame_field_mask(self):
+        calibration = FieldCalibration.from_mapping(
+            {
+                "field": {"length_m": 2.0, "width_m": 1.0},
+                "image_points": [[0, 0], [100, 0], [100, 50], [0, 50]],
+            }
+        )
+        detections = [
+            Detection(0, "ball", 1.0, (20, 20, 24, 24), track_id=1),
+            Detection(1, "ball", 1.0, (120, 20, 124, 24), track_id=1),
+        ]
+
+        analysis = analyze_field_tracks(detections, calibration, fps=10)
+
+        self.assertEqual(analysis["trajectory_scope"], "calibrated_field_ball_coordinates")
+        self.assertEqual(analysis["summary"]["path_samples"], 1)
+        self.assertEqual(analysis["summary"]["ball_out_of_bounds_samples"], 0)
+
     def test_analyze_field_tracks_reports_robot_penalty_samples(self):
         calibration = FieldCalibration.from_mapping(
             {

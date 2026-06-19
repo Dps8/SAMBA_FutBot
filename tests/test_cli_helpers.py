@@ -3,6 +3,7 @@ import unittest
 from argparse import Namespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from samba_futbot.cli import (
     _context_classes,
@@ -17,6 +18,7 @@ from samba_futbot.cli import (
     _source_fingerprint,
     _write_pipeline_manifest,
     build_parser,
+    cmd_render_heatmap,
 )
 
 
@@ -38,6 +40,66 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.class_name, "robots")
         self.assertAlmostEqual(args.decay, 0.997)
+        self.assertEqual(args.robot_fallback_min_area, 0.0)
+        self.assertEqual(args.robot_fallback_max_area, float("inf"))
+        self.assertEqual(args.write_every_n_frames, 1)
+        self.assertIsNone(args.output_fps)
+        self.assertIsNone(args.report_out)
+
+    def test_filter_track_artifacts_command_parses(self):
+        args = build_parser().parse_args(
+            [
+                "filter-track-artifacts",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "filtered.jsonl",
+                "--robot-fallback-min-area",
+                "3500",
+                "--robot-fallback-max-extent",
+                "0.72",
+                "--robot-fallback-max-aspect-ratio",
+                "1.75",
+            ]
+        )
+
+        self.assertEqual(args.robot_fallback_min_area, 3500)
+        self.assertEqual(args.robot_fallback_max_area, float("inf"))
+        self.assertAlmostEqual(args.robot_fallback_max_extent, 0.72)
+        self.assertAlmostEqual(args.robot_fallback_max_aspect_ratio, 1.75)
+
+    @patch("samba_futbot.cli.write_json")
+    @patch("samba_futbot.cli.read_detections", return_value=[])
+    @patch("samba_futbot.cli.render_activity_heatmap")
+    def test_render_heatmap_forwards_timelapse_options(
+        self, render_heatmap, _read_detections, write_json
+    ):
+        render_heatmap.return_value = {"frames": 300, "output_frames": 10}
+        args = build_parser().parse_args(
+            [
+                "render-heatmap",
+                "--video",
+                "match.mp4",
+                "--tracks",
+                "tracks.jsonl",
+                "--out-video",
+                "heatmap.mp4",
+                "--out-image",
+                "heatmap.png",
+                "--report-out",
+                "heatmap.json",
+                "--write-every-n-frames",
+                "30",
+                "--output-fps",
+                "24",
+            ]
+        )
+
+        cmd_render_heatmap(args)
+
+        self.assertEqual(render_heatmap.call_args.kwargs["write_every_n_frames"], 30)
+        self.assertEqual(render_heatmap.call_args.kwargs["output_fps"], 24)
+        write_json.assert_called_once()
 
     def test_assign_teams_embedding_command_parses(self):
         args = build_parser().parse_args(
@@ -56,6 +118,24 @@ class CliHelpersTest(unittest.TestCase):
 
         self.assertEqual(args.model_id, "facebook/dinov2-small")
         self.assertEqual(args.samples_per_track, 8)
+
+    def test_assign_teams_marker_command_parses(self):
+        args = build_parser().parse_args(
+            [
+                "assign-teams-marker",
+                "--video",
+                "match.mp4",
+                "--tracks",
+                "tracks.jsonl",
+                "--out",
+                "assigned.jsonl",
+                "--report-out",
+                "report.json",
+            ]
+        )
+
+        self.assertEqual(args.marker_team, "green_marker")
+        self.assertAlmostEqual(args.marker_ratio_threshold, 0.20)
 
     def test_frame_anchors_uses_regular_step(self):
         self.assertEqual(_frame_anchors(926, start=150, step=150), [150, 300, 450, 600, 750, 900])

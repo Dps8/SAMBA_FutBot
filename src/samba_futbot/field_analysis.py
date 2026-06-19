@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import math
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import mean
 from typing import Iterable
@@ -12,7 +12,7 @@ import numpy as np
 
 from .config import load_config
 from .io_utils import ensure_parent
-from .play_state import ROBOT_CLASSES, in_play_balls
+from .play_state import BALL_CLASSES, FIELD_CLASSES, ROBOT_CLASSES, in_play_balls
 from .types import Detection, Point
 
 
@@ -36,6 +36,7 @@ class FieldCalibration:
     penalty_area_width_m: float = DEFAULT_PENALTY_AREA_WIDTH_M
     goal_width_m: float = DEFAULT_GOAL_WIDTH_M
     goal_depth_m: float = DEFAULT_GOAL_DEPTH_M
+    _matrix: np.ndarray | None = field(default=None, init=False, repr=False)
 
     @classmethod
     def from_mapping(cls, data: dict) -> "FieldCalibration":
@@ -82,7 +83,9 @@ class FieldCalibration:
 
     @property
     def matrix(self) -> np.ndarray:
-        return _homography_matrix(self.image_points, self.field_points)
+        if self._matrix is None:
+            self._matrix = _homography_matrix(self.image_points, self.field_points)
+        return self._matrix
 
     def transform_point(self, point: Point) -> Point:
         x, y = point
@@ -182,11 +185,19 @@ def analyze_field_tracks(
         raise ValueError("grid_cols and grid_rows must be positive.")
 
     detections_list = list(detections)
-    balls = in_play_balls(
-        detections_list,
-        possession_radius_px=possession_radius_px,
-        field_margin_px=field_margin_px,
+    has_frame_field_context = any(
+        detection.class_name in FIELD_CLASSES for detection in detections_list
     )
+    if has_frame_field_context:
+        balls = in_play_balls(
+            detections_list,
+            possession_radius_px=possession_radius_px,
+            field_margin_px=field_margin_px,
+        )
+        trajectory_scope = "in_play_ball_field_coordinates"
+    else:
+        balls = _balls_inside_calibrated_field(detections_list, calibration)
+        trajectory_scope = "calibrated_field_ball_coordinates"
     path = _field_path_records(balls, calibration, grid_cols=grid_cols, grid_rows=grid_rows)
     robot_path = _robot_path_records(
         detections_list,
@@ -204,7 +215,7 @@ def analyze_field_tracks(
     robot_zone_control = _robot_zone_control(robot_path)
 
     return {
-        "trajectory_scope": "in_play_ball_field_coordinates",
+        "trajectory_scope": trajectory_scope,
         "calibration": calibration.to_record(),
         "grid": {
             "cols": grid_cols,
@@ -241,6 +252,19 @@ def analyze_field_tracks(
         "path": path,
         "robot_path": robot_path,
     }
+
+
+def _balls_inside_calibrated_field(
+    detections: Iterable[Detection], calibration: FieldCalibration
+) -> list[Detection]:
+    selected = []
+    for detection in detections:
+        if detection.class_name not in BALL_CLASSES:
+            continue
+        x, y = calibration.transform_point(detection.centroid)
+        if 0.0 <= x <= calibration.field_length_m and 0.0 <= y <= calibration.field_width_m:
+            selected.append(detection)
+    return selected
 
 
 def write_field_trajectory_csv(path: str | Path, analysis: dict) -> None:

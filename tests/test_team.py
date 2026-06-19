@@ -4,12 +4,25 @@ from pathlib import Path
 
 import numpy as np
 
-from samba_futbot.team import assign_robot_teams_from_video, nearest_palette_team, palette_team_vote
+from samba_futbot.team import (
+    assign_robot_teams_from_video,
+    marker_ratio,
+    nearest_palette_team,
+    palette_team_vote,
+)
 from samba_futbot.types import Detection
 from samba_futbot.video import require_cv2
 
 
 class TeamTest(unittest.TestCase):
+    def test_marker_ratio_separates_green_crop(self):
+        green = np.zeros((20, 20, 3), dtype=np.uint8)
+        green[:] = (50, 160, 70)
+        dark = np.zeros((20, 20, 3), dtype=np.uint8)
+
+        self.assertGreater(marker_ratio(green), 0.95)
+        self.assertEqual(marker_ratio(dark), 0.0)
+
     def test_nearest_palette_team(self):
         team, distance = nearest_palette_team(
             (40, 100, 230),

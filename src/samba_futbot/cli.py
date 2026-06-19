@@ -78,7 +78,7 @@ from .showcase import (
 )
 from .situations import analyze_situations
 from .submission import write_submission_report
-from .team import assign_robot_teams_from_video
+from .team import assign_marker_teams_from_video, assign_robot_teams_from_video
 from .team_embedding import (
     align_clusters_to_teams,
     assign_embedding_teams,
@@ -87,6 +87,7 @@ from .team_embedding import (
     extract_dinov2_track_embeddings,
 )
 from .team_quality import analyze_team_quality_file, write_team_quality_markdown
+from .track_filter import filter_tracking_artifacts
 from .tracking import track_detections
 from .training_export import export_balanced_coco_subset, export_coco_detection
 from .types import Event
@@ -185,6 +186,22 @@ def build_parser() -> argparse.ArgumentParser:
     filter_dets.add_argument("--frame-height", type=int, required=True)
     filter_dets.add_argument("--ball-border-margin-px", type=float, default=4.0)
     filter_dets.set_defaults(func=cmd_filter_detections)
+
+    filter_tracks = sub.add_parser(
+        "filter-track-artifacts",
+        help="Filtrar artefactos geometricos del fallback cromatico de robots.",
+    )
+    filter_tracks.add_argument("--tracks", required=True)
+    filter_tracks.add_argument("--out", required=True)
+    filter_tracks.add_argument("--robot-fallback-min-area", type=float, default=0.0)
+    filter_tracks.add_argument(
+        "--robot-fallback-max-area", type=float, default=float("inf")
+    )
+    filter_tracks.add_argument("--robot-fallback-max-extent", type=float, default=1.0)
+    filter_tracks.add_argument(
+        "--robot-fallback-max-aspect-ratio", type=float, default=float("inf")
+    )
+    filter_tracks.set_defaults(func=cmd_filter_track_artifacts)
 
     pseudolabels = sub.add_parser(
         "export-pseudolabels",
@@ -833,6 +850,23 @@ def build_parser() -> argparse.ArgumentParser:
     assign_teams.add_argument("--config", default="config/default.yml")
     assign_teams.set_defaults(func=cmd_assign_teams)
 
+    marker_teams = sub.add_parser(
+        "assign-teams-marker",
+        help="Asignar equipos por proporcion medida de un marcador HSV.",
+    )
+    marker_teams.add_argument("--video", required=True)
+    marker_teams.add_argument("--tracks", required=True)
+    marker_teams.add_argument("--out", required=True)
+    marker_teams.add_argument("--report-out", required=True)
+    marker_teams.add_argument("--marker-team", default="green_marker")
+    marker_teams.add_argument("--other-team", default="unmarked")
+    marker_teams.add_argument("--marker-ratio-threshold", type=float, default=0.20)
+    marker_teams.add_argument("--hsv-lower", default="35,65,45")
+    marker_teams.add_argument("--hsv-upper", default="90,255,255")
+    marker_teams.add_argument("--samples-per-track", type=int, default=20)
+    marker_teams.add_argument("--min-frame-gap", type=int, default=10)
+    marker_teams.set_defaults(func=cmd_assign_teams_marker)
+
     embedding_teams = sub.add_parser(
         "assign-teams-embedding",
         help="Evaluar equipos por apariencia DINOv2 y alinearlos con votos HSV.",
@@ -917,6 +951,7 @@ def build_parser() -> argparse.ArgumentParser:
     game_state.add_argument("--robot-removed-after-frames", type=int, default=18)
     game_state.add_argument("--robot-disabled-after-frames", type=int, default=45)
     game_state.add_argument("--stationary-threshold-px", type=float, default=2.0)
+    game_state.add_argument("--field-calibration", default=None)
     game_state.set_defaults(func=cmd_game_state)
 
     metrics = sub.add_parser("metrics", help="Calcular metricas operativas.")
@@ -958,12 +993,28 @@ def build_parser() -> argparse.ArgumentParser:
     heatmap.add_argument("--tracks", required=True)
     heatmap.add_argument("--out-video", required=True)
     heatmap.add_argument("--out-image", required=True)
+    heatmap.add_argument("--report-out", default=None)
     heatmap.add_argument("--class-name", default="robots")
     heatmap.add_argument("--team", default=None)
     heatmap.add_argument("--radius-px", type=int, default=28)
     heatmap.add_argument("--decay", type=float, default=0.997)
     heatmap.add_argument("--alpha", type=float, default=0.48)
     heatmap.add_argument("--max-seconds", type=float, default=None)
+    heatmap.add_argument("--robot-fallback-min-area", type=float, default=0.0)
+    heatmap.add_argument("--robot-fallback-max-area", type=float, default=float("inf"))
+    heatmap.add_argument("--robot-fallback-max-extent", type=float, default=1.0)
+    heatmap.add_argument(
+        "--robot-fallback-max-aspect-ratio", type=float, default=float("inf")
+    )
+    heatmap.add_argument(
+        "--write-every-n-frames",
+        type=int,
+        default=1,
+        help="Escribir un cuadro por cada N cuadros procesados, acumulando todos.",
+    )
+    heatmap.add_argument("--output-fps", type=float, default=None)
+    heatmap.add_argument("--field-calibration", default=None)
+    heatmap.add_argument("--field-margin-m", type=float, default=0.0)
     heatmap.set_defaults(func=cmd_render_heatmap)
 
     info = sub.add_parser("video-info", help="Mostrar metadata de video.")
@@ -1260,6 +1311,19 @@ def cmd_filter_detections(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def cmd_filter_track_artifacts(args: argparse.Namespace) -> None:
+    filtered, report = filter_tracking_artifacts(
+        read_detections(args.tracks),
+        robot_fallback_min_area=args.robot_fallback_min_area,
+        robot_fallback_max_area=args.robot_fallback_max_area,
+        robot_fallback_max_extent=args.robot_fallback_max_extent,
+        robot_fallback_max_aspect_ratio=args.robot_fallback_max_aspect_ratio,
+    )
+    write_detections(args.out, filtered)
+    report["out"] = args.out
+    print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 def cmd_export_pseudolabels(args: argparse.Namespace) -> None:
@@ -2675,6 +2739,8 @@ def _write_pipeline_game_state(
             "summary": {"enabled": False},
         }
 
+    calibration_path = getattr(args, "field_calibration", None)
+    calibration = load_field_calibration(calibration_path) if calibration_path else None
     states = classify_frame_states(
         tracked,
         possession_radius_px=possession_radius_px,
@@ -2683,6 +2749,7 @@ def _write_pipeline_game_state(
         robot_removed_after_frames=args.robot_removed_after_frames,
         robot_disabled_after_frames=args.robot_disabled_after_frames,
         stationary_threshold_px=args.stationary_threshold_px,
+        field_polygon=calibration.image_points if calibration else None,
     )
     segments = detect_game_segments(states)
     external_events = detect_external_events(states)
@@ -3524,6 +3591,27 @@ def cmd_assign_teams(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_assign_teams_marker(args: argparse.Namespace) -> None:
+    hsv_lower = tuple(parse_int_list(args.hsv_lower))
+    hsv_upper = tuple(parse_int_list(args.hsv_upper))
+    if len(hsv_lower) != 3 or len(hsv_upper) != 3:
+        raise ValueError("HSV bounds must contain exactly three integers")
+    assigned, report = assign_marker_teams_from_video(
+        args.video,
+        read_detections(args.tracks),
+        marker_team=args.marker_team,
+        other_team=args.other_team,
+        marker_ratio_threshold=args.marker_ratio_threshold,
+        hsv_lower=hsv_lower,
+        hsv_upper=hsv_upper,
+        samples_per_track=args.samples_per_track,
+        min_frame_gap=args.min_frame_gap,
+    )
+    write_detections(args.out, assigned)
+    write_json(args.report_out, report)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 def cmd_assign_teams_embedding(args: argparse.Namespace) -> None:
     tracks = read_detections(args.tracks)
     existing_votes: dict[int, list[str]] = {}
@@ -3684,6 +3772,9 @@ def cmd_situation_analysis(args: argparse.Namespace) -> None:
 
 def cmd_game_state(args: argparse.Namespace) -> None:
     detections = read_detections(args.tracks)
+    calibration = (
+        load_field_calibration(args.field_calibration) if args.field_calibration else None
+    )
     states = classify_frame_states(
         detections,
         possession_radius_px=args.possession_radius_px,
@@ -3692,6 +3783,7 @@ def cmd_game_state(args: argparse.Namespace) -> None:
         robot_removed_after_frames=args.robot_removed_after_frames,
         robot_disabled_after_frames=args.robot_disabled_after_frames,
         stationary_threshold_px=args.stationary_threshold_px,
+        field_polygon=calibration.image_points if calibration else None,
     )
     segments = detect_game_segments(states)
     external_events = detect_external_events(states)
@@ -3770,6 +3862,9 @@ def cmd_render_demo(args: argparse.Namespace) -> None:
 
 
 def cmd_render_heatmap(args: argparse.Namespace) -> None:
+    calibration = (
+        load_field_calibration(args.field_calibration) if args.field_calibration else None
+    )
     result = render_activity_heatmap(
         args.video,
         read_detections(args.tracks),
@@ -3781,7 +3876,18 @@ def cmd_render_heatmap(args: argparse.Namespace) -> None:
         decay=args.decay,
         alpha=args.alpha,
         max_seconds=args.max_seconds,
+        robot_fallback_min_area=args.robot_fallback_min_area,
+        robot_fallback_max_area=args.robot_fallback_max_area,
+        robot_fallback_max_extent=args.robot_fallback_max_extent,
+        robot_fallback_max_aspect_ratio=args.robot_fallback_max_aspect_ratio,
+        write_every_n_frames=args.write_every_n_frames,
+        output_fps=args.output_fps,
+        calibration=calibration,
+        field_margin_m=args.field_margin_m,
     )
+    if args.report_out:
+        write_json(args.report_out, result)
+        result["report"] = args.report_out
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

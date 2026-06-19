@@ -85,6 +85,15 @@ class GameStateTest(unittest.TestCase):
         self.assertEqual([segment.state for segment in segments], ["in_play", "dead_ball"])
         self.assertEqual(play_mask, {0})
 
+    def test_calibrated_polygon_marks_ball_on_field_as_in_play(self):
+        states = classify_frame_states(
+            [Detection(0, "ball", 1.0, (45, 25, 55, 35), track_id=9)],
+            field_polygon=[(0, 0), (100, 0), (100, 60), (0, 60)],
+        )
+
+        self.assertEqual(states[0].state, "in_play")
+        self.assertTrue(states[0].ball_in_play)
+
     def test_playable_frames_can_be_loaded_from_game_state_json(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "game-state.json"

@@ -1,0 +1,24 @@
+# Calibration for IMG_9933 top-camera clips.
+# Corners were estimated from the outer white field lines in frame 0 and
+# verified against the official 2.43 m x 1.82 m field dimensions.
+
+field:
+  length_m: 2.43
+  width_m: 1.82
+  center_circle_diameter_m: 0.60
+  penalty_area_depth_m: 0.25
+  penalty_area_width_m: 0.80
+  goal_width_m: 0.60
+  goal_depth_m: 0.10
+
+image_points:
+  top_left: [244.58, 220.00]
+  top_right: [1079.00, 220.00]
+  bottom_right: [1053.00, 1720.00]
+  bottom_left: [113.37, 1467.98]
+
+field_points:
+  top_left: [0.0, 0.0]
+  top_right: [2.43, 0.0]
+  bottom_right: [2.43, 1.82]
+  bottom_left: [0.0, 1.82]

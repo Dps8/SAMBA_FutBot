@@ -61,6 +61,7 @@ def classify_frame_states(
     robot_disabled_after_frames: int = 45,
     stationary_threshold_px: float = 2.0,
     human_field_margin_px: float = 12.0,
+    field_polygon: list[tuple[float, float]] | None = None,
 ) -> list[FrameState]:
     detections_list = list(detections)
     frames = group_by_frame(detections_list)
@@ -88,6 +89,8 @@ def classify_frame_states(
             )
             for ball in balls
         )
+        if field_polygon and not in_play:
+            in_play = any(_point_in_polygon(ball.centroid, field_polygon) for ball in balls)
         if balls:
             last_ball_frame = frame_index
 
@@ -364,6 +367,25 @@ def _boxes_overlap(
         or ay2 + margin_px < by1
         or by2 + margin_px < ay1
     )
+
+
+def _point_in_polygon(
+    point: tuple[float, float], polygon: list[tuple[float, float]]
+) -> bool:
+    if len(polygon) < 3:
+        return False
+    x, y = point
+    inside = False
+    previous = polygon[-1]
+    for current in polygon:
+        x1, y1 = previous
+        x2, y2 = current
+        if ((y1 > y) != (y2 > y)) and (
+            x < (x2 - x1) * (y - y1) / ((y2 - y1) or 1e-12) + x1
+        ):
+            inside = not inside
+        previous = current
+    return inside
 
 
 def _append_segment(

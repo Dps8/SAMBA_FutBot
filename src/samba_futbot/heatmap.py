@@ -7,6 +7,8 @@ from typing import Iterable
 import numpy as np
 
 from .play_state import ROBOT_CLASSES
+from .field_analysis import FieldCalibration
+from .track_filter import is_tracking_artifact
 from .types import Detection
 from .video import require_cv2
 
@@ -23,6 +25,14 @@ def render_activity_heatmap(
     decay: float = 0.997,
     alpha: float = 0.48,
     max_seconds: float | None = None,
+    robot_fallback_min_area: float = 0.0,
+    robot_fallback_max_area: float = float("inf"),
+    robot_fallback_max_extent: float = 1.0,
+    robot_fallback_max_aspect_ratio: float = float("inf"),
+    write_every_n_frames: int = 1,
+    output_fps: float | None = None,
+    calibration: FieldCalibration | None = None,
+    field_margin_m: float = 0.0,
 ) -> dict:
     cv2 = require_cv2()
     if radius_px <= 0:
@@ -31,11 +41,25 @@ def render_activity_heatmap(
         raise ValueError("decay must be in (0, 1]")
     if not 0 <= alpha <= 1:
         raise ValueError("alpha must be in [0, 1]")
+    if write_every_n_frames <= 0:
+        raise ValueError("write_every_n_frames must be positive")
+    if output_fps is not None and output_fps <= 0:
+        raise ValueError("output_fps must be positive")
+    if field_margin_m < 0:
+        raise ValueError("field_margin_m must be non-negative")
 
     selected = [
         detection
         for detection in detections
         if _matches(detection, class_name=class_name, team=team)
+        and not is_tracking_artifact(
+            detection,
+            robot_fallback_min_area=robot_fallback_min_area,
+            robot_fallback_max_area=robot_fallback_max_area,
+            robot_fallback_max_extent=robot_fallback_max_extent,
+            robot_fallback_max_aspect_ratio=robot_fallback_max_aspect_ratio,
+        )
+        and _inside_calibrated_field(detection, calibration, field_margin_m)
     ]
     by_frame: dict[int, list[Detection]] = defaultdict(list)
     for detection in selected:
@@ -55,7 +79,7 @@ def render_activity_heatmap(
     writer = cv2.VideoWriter(
         str(output),
         cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
+        output_fps or fps,
         (width, height),
     )
     if not writer.isOpened():
@@ -66,6 +90,7 @@ def render_activity_heatmap(
     total_heat = np.zeros((height, width), dtype=np.float32)
     last_frame = None
     frame_index = 0
+    output_frames = 0
     samples = 0
     while max_frames is None or frame_index < max_frames:
         ok, frame = cap.read()
@@ -79,14 +104,16 @@ def render_activity_heatmap(
             cv2.circle(dynamic_heat, point, radius_px, 1.0, -1)
             cv2.circle(total_heat, point, radius_px, 1.0, -1)
             samples += 1
-        annotated = _overlay_heat(frame, dynamic_heat, alpha=alpha)
-        _draw_title(
-            annotated,
-            title=_title(class_name, team),
-            elapsed_seconds=frame_index / fps,
-            samples=samples,
-        )
-        writer.write(annotated)
+        if frame_index % write_every_n_frames == 0:
+            annotated = _overlay_heat(frame, dynamic_heat, alpha=alpha)
+            _draw_title(
+                annotated,
+                title=_title(class_name, team),
+                elapsed_seconds=frame_index / fps,
+                samples=samples,
+            )
+            writer.write(annotated)
+            output_frames += 1
         last_frame = frame
         frame_index += 1
 
@@ -102,11 +129,34 @@ def render_activity_heatmap(
         "video": str(output),
         "image": str(image_output),
         "frames": frame_index,
+        "output_frames": output_frames,
         "samples": samples,
         "fps": fps,
+        "output_fps": output_fps or fps,
+        "write_every_n_frames": write_every_n_frames,
         "class_name": class_name,
         "team": team,
+        "robot_fallback_min_area": robot_fallback_min_area,
+        "robot_fallback_max_area": robot_fallback_max_area,
+        "robot_fallback_max_extent": robot_fallback_max_extent,
+        "robot_fallback_max_aspect_ratio": robot_fallback_max_aspect_ratio,
+        "field_margin_m": field_margin_m,
+        "calibrated_field_filter": calibration is not None,
     }
+
+
+def _inside_calibrated_field(
+    detection: Detection,
+    calibration: FieldCalibration | None,
+    margin_m: float,
+) -> bool:
+    if calibration is None:
+        return True
+    x, y = calibration.transform_point(detection.centroid)
+    return (
+        margin_m <= x <= calibration.field_length_m - margin_m
+        and margin_m <= y <= calibration.field_width_m - margin_m
+    )
 
 
 def _matches(detection: Detection, *, class_name: str, team: str | None) -> bool:

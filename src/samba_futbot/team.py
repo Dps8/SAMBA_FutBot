@@ -83,6 +83,135 @@ def assign_robot_teams_from_video(
     return detections_list
 
 
+def assign_marker_teams_from_video(
+    video_path: str | Path,
+    detections: Iterable[Detection],
+    *,
+    marker_team: str = "green_marker",
+    other_team: str = "unmarked",
+    marker_ratio_threshold: float = 0.20,
+    hsv_lower: tuple[int, int, int] = (35, 65, 45),
+    hsv_upper: tuple[int, int, int] = (90, 255, 255),
+    samples_per_track: int = 20,
+    min_frame_gap: int = 10,
+) -> tuple[list[Detection], dict]:
+    """Classify robot tracks by the measured fraction of a marker color."""
+    if not 0 <= marker_ratio_threshold <= 1:
+        raise ValueError("marker_ratio_threshold must be in [0, 1]")
+    detections_list = list(detections)
+    selected = _select_marker_samples(
+        detections_list,
+        samples_per_track=samples_per_track,
+        min_frame_gap=min_frame_gap,
+    )
+    ratios = _marker_ratios_from_video(
+        video_path,
+        selected,
+        hsv_lower=hsv_lower,
+        hsv_upper=hsv_upper,
+    )
+    median_by_track = {
+        track_id: float(np.median(values))
+        for track_id, values in ratios.items()
+        if values
+    }
+    team_by_track = {
+        track_id: marker_team if ratio >= marker_ratio_threshold else other_team
+        for track_id, ratio in median_by_track.items()
+    }
+    for detection in detections_list:
+        if detection.class_name in ROBOT_CLASSES and detection.track_id in team_by_track:
+            detection.team = team_by_track[detection.track_id]
+    return detections_list, {
+        "schema": "samba_futbot.marker_team_assignment.v1",
+        "marker_team": marker_team,
+        "other_team": other_team,
+        "marker_ratio_threshold": marker_ratio_threshold,
+        "hsv_lower": list(hsv_lower),
+        "hsv_upper": list(hsv_upper),
+        "median_marker_ratio_by_track": {
+            str(track_id): ratio for track_id, ratio in sorted(median_by_track.items())
+        },
+        "team_by_track": {
+            str(track_id): team for track_id, team in sorted(team_by_track.items())
+        },
+    }
+
+
+def marker_ratio(
+    crop_bgr: np.ndarray,
+    *,
+    hsv_lower: tuple[int, int, int] = (35, 65, 45),
+    hsv_upper: tuple[int, int, int] = (90, 255, 255),
+) -> float:
+    if crop_bgr.size == 0:
+        return 0.0
+    cv2 = require_cv2()
+    hsv = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
+    lower = np.asarray(hsv_lower, dtype=np.uint8)
+    upper = np.asarray(hsv_upper, dtype=np.uint8)
+    mask = cv2.inRange(hsv, lower, upper)
+    return float(np.count_nonzero(mask) / mask.size)
+
+
+def _select_marker_samples(
+    detections: list[Detection],
+    *,
+    samples_per_track: int,
+    min_frame_gap: int,
+) -> dict[int, list[Detection]]:
+    selected: dict[int, list[Detection]] = {}
+    last_frame: dict[int, int] = {}
+    ordered = sorted(detections, key=lambda item: (item.frame_index, item.track_id or -1))
+    for detection in ordered:
+        if detection.class_name not in ROBOT_CLASSES or detection.track_id is None:
+            continue
+        track_id = int(detection.track_id)
+        items = selected.setdefault(track_id, [])
+        if len(items) >= samples_per_track:
+            continue
+        if detection.frame_index - last_frame.get(track_id, -min_frame_gap) < min_frame_gap:
+            continue
+        items.append(detection)
+        last_frame[track_id] = detection.frame_index
+    return selected
+
+
+def _marker_ratios_from_video(
+    video_path: str | Path,
+    selected: dict[int, list[Detection]],
+    *,
+    hsv_lower: tuple[int, int, int],
+    hsv_upper: tuple[int, int, int],
+) -> dict[int, list[float]]:
+    cv2 = require_cv2()
+    by_frame: dict[int, list[Detection]] = {}
+    for detections in selected.values():
+        for detection in detections:
+            by_frame.setdefault(detection.frame_index, []).append(detection)
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Could not open video: {video_path}")
+    ratios: dict[int, list[float]] = {}
+    frame_index = 0
+    wanted = set(by_frame)
+    while wanted:
+        ok, frame_bgr = cap.read()
+        if not ok:
+            break
+        if frame_index in wanted:
+            frame_rgb = frame_bgr[:, :, ::-1]
+            for detection in by_frame[frame_index]:
+                crop_rgb = _crop_detection(frame_rgb, detection)
+                crop_bgr = crop_rgb[:, :, ::-1]
+                ratio = marker_ratio(crop_bgr, hsv_lower=hsv_lower, hsv_upper=hsv_upper)
+                ratios.setdefault(int(detection.track_id), []).append(ratio)
+            wanted.remove(frame_index)
+        frame_index += 1
+    cap.release()
+    return ratios
+
+
 def _team_observations(
     video_path: str | Path,
     robot_dets: list[Detection],
